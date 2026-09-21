@@ -1,0 +1,19 @@
+{
+  "company": "주식회사 모인",
+  "lunch_limit": 10000,
+  "night_limit": 12000,
+  "night_users": ["유병규", "강두원"],
+  "name_only_lunch_users": ["이혜영"],
+  "eligible_statuses": ["지급대기"],
+  "aliases": {
+    "기태": "김기태",
+    "희정": "임희정",
+    "민하": "서민하",
+    "보람": "정보람",
+    "은주": "조은주",
+    "선우": "고선우"
+  },
+  "extra_employees": [],
+  "excluded_patterns": ["모인\\s*런치", "출장", "휴일"],
+  "non_meal_patterns": ["회식", "선물", "화환", "택시", "명함", "어댑터", "교통비", "소모품", "비품", "접대"]
+}
