@@ -47,8 +47,10 @@ class JobisUI:
 
     def open_list(self, month: str):
         start, end = month_range(month)
+        # Approval times are not unique. Jobis can repeat one tied receipt and
+        # omit another across page boundaries; use its unique receipt ID order.
         query = urlencode({"search_start_date": start, "search_end_date": end,
-                           "per_page": "100", "search_order_by": "approval_time", "search_order": "desc"})
+                           "per_page": "100", "search_order_by": "r_idx", "search_order": "desc"})
         self.page.goto(self.base_url + "/receipts/main?" + query, wait_until="domcontentloaded")
         self.check_company()
         self.page.locator("#receipt_table").wait_for(state="visible")
@@ -66,6 +68,7 @@ class JobisUI:
         employees = self.roster()
         result = {}
         visited = set()
+        last_id = None
         start, end = month_range(month)
         for _ in range(1000):
             url = self.page.url
@@ -96,22 +99,25 @@ class JobisUI:
                             clean(c[6]), clean(c[8]), clean(c[9]))
                 if rid in result:
                     raise RuntimeError("페이지 사이에 같은 영수증이 반복됩니다. 새로 검사하세요.")
+                if last_id is not None and int(rid) >= last_id:
+                    raise RuntimeError("영수증 고유번호순 정렬이 적용되지 않았습니다. 저장 없이 중단합니다.")
                 result[rid] = r
+                last_id = int(rid)
             print(f"  {len(visited)}페이지 확인 · {len(result)}건 읽음", flush=True)
             next_link = self.page.get_by_role("link", name="→", exact=True)
             if next_link.count() == 0:
                 return list(result.values()), employees
             href = urljoin(self.page.url, next_link.get_attribute("href") or "")
             dest = urlparse(href)
-            current = parse_qs(urlparse(url).query)
             query = parse_qs(dest.query)
             if (dest.scheme, dest.netloc, dest.path) != (*urlparse(self.base_url)[:2], "/receipts/main"):
                 raise RuntimeError("다음 페이지 링크의 목적지가 다릅니다.")
-            for key, expected in (("search_start_date", start), ("search_end_date", end), ("per_page", "100")):
+            for key, expected in (("search_start_date", start), ("search_end_date", end), ("per_page", "100"),
+                                  ("search_order_by", "r_idx"), ("search_order", "desc")):
                 if query.get(key) != [expected]:
                     raise RuntimeError("다음 페이지에서 조회 조건이 달라졌습니다.")
-            if int(query.get("page", ["1"])[0]) <= int(current.get("page", ["1"])[0]):
-                raise RuntimeError("다음 페이지 번호가 증가하지 않습니다.")
+            if query.get("page") != [str(len(visited) + 1)]:
+                raise RuntimeError("다음 페이지 번호가 연속되지 않습니다. 저장 없이 중단합니다.")
             # 관찰한 실제 링크로 이동하고 table까지 기다려 빈 페이지 수집을 막는다.
             self.page.goto(href, wait_until="domcontentloaded")
             self.check_company()

@@ -32,7 +32,8 @@ def site():
         "4": {"user": "유병규", "memo": "야간 식대", "amount": 13000, "purpose": "", "vat": "1181"},
         "5": {"user": "서민하", "memo": "점심", "amount": 9000, "purpose": "", "vat": "818"},
     }
-    state = {"rows": rows, "saves": [], "mode": "normal", "seen_pages": [], "duplicate": False}
+    state = {"rows": rows, "saves": [], "mode": "normal", "seen_pages": [], "duplicate": False,
+             "date_ties": False, "ignore_sort": False, "next_query": {}}
     names = ["서민하", "김기태", "임희정", "유병규", "강두원", "이혜영"]
     esc = lambda v: html.escape(str(v), quote=True)
 
@@ -55,9 +56,16 @@ def site():
             if u.path == "/receipts/main":
                 page = int(q.get("page", ["1"])[0])
                 state["seen_pages"].append(page)
-                ids = list(rows)[(page - 1) * 2:page * 2]
-                if state["duplicate"] and page == 2:
+                ordered = list(rows)
+                if q.get("search_order_by") == ["r_idx"] and not state["ignore_sort"]:
+                    ordered.sort(key=int, reverse=q.get("search_order") == ["desc"])
+                ids = ordered[(page - 1) * 2:page * 2]
+                # Date ties can cross the LIMIT/OFFSET boundary: one receipt
+                # repeats while another is omitted, even on a stable dataset.
+                if state["date_ties"] and q.get("search_order_by") == ["approval_time"] and page == 2:
                     ids = ["1", "4"]
+                if state["duplicate"] and page == 2:
+                    ids = [ordered[0], ordered[3]]
                 select = '<select id="search_u_idx"><option value="">전체</option>' + ''.join(
                     f'<option value="{i}">{n}</option>' for i, n in enumerate(names, 1)) + '</select>'
                 tbody = []
@@ -70,6 +78,7 @@ def site():
                 more = ""
                 if page * 2 < len(rows):
                     q["page"] = [str(page + 1)]
+                    q.update(state["next_query"])
                     more = '<a href="/receipts/main?' + esc(urlencode(q, doseq=True)) + '">→</a>'
                 self.send(header + select + table + more)
             elif u.path == "/receipts/form":
@@ -199,8 +208,8 @@ def test_failed_save_stops_without_retry(ui, site, config, tmp_path):
     site["mode"] = "reject"
     with pytest.raises(RuntimeError, match="저장 결과 불일치"):
         apply_plan(ui, config, plan, tmp_path)
-    assert [s["id"] for s in site["saves"]] == ["1"]
-    assert site["rows"]["1"]["amount"] == 11500
+    assert [s["id"] for s in site["saves"]] == ["5"]
+    assert site["rows"]["5"]["purpose"] == ""
 
 
 def test_saved_without_navigation_is_verified_without_second_save(ui, site, config, tmp_path):
@@ -213,8 +222,9 @@ def test_saved_without_navigation_is_verified_without_second_save(ui, site, conf
 def test_direct_detail_change_blocks_save(ui, site, config):
     ready = preflight(ui, config, make(ui, config))
     site["rows"]["1"]["memo"] = "회식"
+    receipt, decision = next((r, d) for r, d in ready if r.id == "1")
     with pytest.raises(RuntimeError, match="목록과 상세내역"):
-        ui.apply_one(ready[0][0], ready[0][1].target, lambda *a: None)
+        ui.apply_one(receipt, decision.target, lambda *a: None)
     assert not site["saves"]
 
 
@@ -248,6 +258,34 @@ def test_duplicate_pages_abort(ui, site):
     site["duplicate"] = True
     with pytest.raises(RuntimeError, match="같은 영수증"):
         ui.scan("2026-09")
+
+
+def test_date_ties_do_not_repeat_or_omit_receipts(ui, site):
+    site["date_ties"] = True
+    receipts, _ = ui.scan("2026-09")
+    assert [r.id for r in receipts] == ["5", "4", "3", "2", "1"]
+    assert site["seen_pages"] == [1, 2, 3, 1, 2, 3]
+    assert not site["saves"]
+
+
+def test_ignored_unique_sort_aborts(ui, site):
+    site["ignore_sort"] = True
+    with pytest.raises(RuntimeError, match="고유번호순 정렬"):
+        ui.scan("2026-09")
+    assert not site["saves"]
+
+
+@pytest.mark.parametrize("next_query,message", [
+    ({"search_order_by": ["approval_time"]}, "조회 조건"),
+    ({"search_order": ["asc"]}, "조회 조건"),
+    ({"page": ["3"]}, "연속"),
+])
+def test_next_page_cannot_change_sort_or_skip_a_page(ui, site, next_query, message):
+    site["next_query"] = next_query
+    with pytest.raises(RuntimeError, match=message):
+        ui.scan("2026-09")
+    assert site["seen_pages"] == [1]
+    assert not site["saves"]
 
 
 def test_preview_filters_and_escapes_content(browser, ui, config, tmp_path):
