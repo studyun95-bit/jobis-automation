@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import webbrowser
 from contextlib import contextmanager
@@ -13,6 +14,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from .browser import BASE_URL, JobisUI, month_range
+from .reports import preview
 from .workflow import apply_plan, scan_to_folder, verify_plan
 
 
@@ -71,10 +73,10 @@ def browser_session(config, browser):
 
 
 def latest_plan():
-    plans = sorted((ROOT / "runs").glob("*/plan.json"))
+    plans = list((ROOT / "runs").glob("*/plan.json"))
     if not plans:
         raise ValueError("검사 결과가 없습니다. 먼저 scan을 실행하세요.")
-    return plans[-1]
+    return max(plans, key=lambda path: path.stat().st_mtime_ns)
 
 
 def load_plan(path):
@@ -88,7 +90,48 @@ def show_counts(counts):
     print(" / ".join(f"{name} {counts.get(key, 0)}건" for key, name in labels.items()))
 
 
+def open_preview_file(path):
+    path = Path(path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError("미리보기 파일이 없습니다: " + str(path))
+    if sys.platform == "darwin":
+        # LaunchServices opens the saved file in a regular browser, after the
+        # automation context has closed. Pass the path as one argument.
+        for app in ("Google Chrome", "Safari"):
+            try:
+                result = subprocess.run(["/usr/bin/open", "-a", app, str(path)],
+                                        capture_output=True, text=True, timeout=15)
+                if result.returncode == 0:
+                    print(f"{app}에서 미리보기를 확인하세요.", flush=True)
+                    return True
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+    else:
+        try:
+            if webbrowser.open(path.as_uri(), new=2):
+                return True
+        except (OSError, webbrowser.Error):
+            pass
+    print("검사 결과는 저장됐지만 미리보기 자동 열기에 실패했습니다.")
+    print("아래 파일을 Chrome 또는 Safari로 열거나 메뉴 5번으로 다시 여세요:")
+    print(path)
+    return False
+
+
+def reopen_preview(plan_path=None):
+    path, plan = load_plan(plan_path or latest_plan())
+    saved = path.parent / "preview.html"
+    if not saved.is_file():
+        preview(path.parent, plan)
+    print(f"저장된 검사 결과: {plan['company']} / {plan['month']} / 생성 {plan['created_at']}")
+    print("미리보기:", saved)
+    return 0 if open_preview_file(saved) else 2
+
+
 def execute(command, config, browser, month=None, plan_path=None, only=None, open_preview=False):
+    if command == "preview":
+        return reopen_preview(plan_path)
+    saved_preview = None
     if command == "scan":
         month_range(month)
     if command in ("apply", "verify"):
@@ -103,13 +146,15 @@ def execute(command, config, browser, month=None, plan_path=None, only=None, ope
             ui.roster()
             print("로그인 확인 완료. 다음 실행부터 이 전용 브라우저의 로그인을 사용합니다.")
         elif command == "scan":
+            print(f"{month} 영수증을 검사하고 있습니다. 모든 페이지 조회와 재확인이 끝나면 결과를 표시합니다.", flush=True)
             folder = ROOT / "runs" / (month + "-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
             _, counts = scan_to_folder(ui, config, month, folder)
+            print("검사 완료. 미리보기 파일을 저장했습니다.", flush=True)
             show_counts(counts)
             print("미리보기:", folder / "preview.html")
             print("계획 파일:", folder / "plan.json")
             if open_preview:
-                webbrowser.open((folder / "preview.html").as_uri())
+                saved_preview = folder / "preview.html"
         elif command == "apply":
             result = apply_plan(ui, config, plan, path.parent, only)
             changed = sum(item["status"] in ("updated", "updated_with_vat_change") for item in result["items"])
@@ -129,18 +174,22 @@ def execute(command, config, browser, month=None, plan_path=None, only=None, ope
             if result["counts"].get("review", 0):
                 print("인원 판정 보류 항목은 수동 검토가 필요합니다. 미리보기의 '확인 필요'를 확인하세요.")
             return 0 if result["success"] else 2
+    if saved_preview is not None:
+        return 0 if open_preview_file(saved_preview) else 2
     return 0
 
 
 def menu(config, browser):
     while True:
-        print("\n자비스 식대 자동화\n1 로그인\n2 검사·미리보기 (저장 안 함)\n3 미리보기대로 적용\n4 빠진 항목 확인\n0 종료")
+        print("\n자비스 식대 자동화\n1 로그인\n2 검사·미리보기 (저장 안 함)\n3 미리보기대로 적용\n4 빠진 항목 확인\n5 최근 미리보기 다시 열기\n0 종료")
         choice = input("선택: ").strip()
         try:
             if choice == "0":
                 return 0
             if choice == "1":
                 execute("login", config, browser)
+            elif choice == "5":
+                reopen_preview()
             elif choice == "2":
                 default = datetime.now().strftime("%Y-%m")
                 month = input(f"조회 월 [{default}]: ").strip() or default
@@ -158,7 +207,7 @@ def menu(config, browser):
                         continue
                 execute("apply" if choice == "3" else "verify", config, browser, plan_path=path)
             else:
-                print("0~4 중 선택하세요.")
+                print("0~5 중 선택하세요.")
         except Exception as exc:
             print("중단:", exc)
             print("로그인 만료/화면 변경/메모 불일치 여부를 확인한 뒤 새로 검사하세요.")
@@ -174,6 +223,8 @@ def main():
     scan = sub.add_parser("scan", help="읽기 전용 검사 및 HTML/CSV 미리보기")
     scan.add_argument("--month", required=True, help="YYYY-MM")
     scan.add_argument("--open", action="store_true", help="미리보기를 브라우저로 열기")
+    saved = sub.add_parser("preview", help="저장된 미리보기 다시 열기 (로그인/재검사 없음)")
+    saved.add_argument("--plan", type=Path, help="생략하면 가장 최근에 생성된 검사 결과")
     for name in ("apply", "verify"):
         p = sub.add_parser(name, help="계획 적용" if name == "apply" else "전체 누락/변경 검사")
         p.add_argument("--plan", required=True, type=Path)

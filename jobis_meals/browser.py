@@ -97,6 +97,7 @@ class JobisUI:
                 if rid in result:
                     raise RuntimeError("페이지 사이에 같은 영수증이 반복됩니다. 새로 검사하세요.")
                 result[rid] = r
+            print(f"  {len(visited)}페이지 확인 · {len(result)}건 읽음", flush=True)
             next_link = self.page.get_by_role("link", name="→", exact=True)
             if next_link.count() == 0:
                 return list(result.values()), employees
@@ -119,7 +120,8 @@ class JobisUI:
     def scan(self, month: str, attempts=3):
         """연속 두 번 동일한 목록을 얻어 페이지 이동 중 신규 등록 누락을 탐지한다."""
         previous = None
-        for _ in range(attempts):
+        for attempt in range(attempts):
+            print(f"목록 확인 {attempt + 1}회차", flush=True)
             receipts, employees = self.scan_once(month)
             signature = ({r.id: asdict(r) for r in receipts}, sorted((r["id"], r["name"]) for r in employees))
             if signature == previous:
