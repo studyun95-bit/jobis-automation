@@ -37,15 +37,16 @@ def test_scan_opens_preview_after_automation_browser_closes(monkeypatch, tmp_pat
         (folder / "preview.html").write_text("<h1>result</h1>")
         return {}, {"keep": 3}
 
-    def open_file(path):
+    def open_file(path, config):
         assert order[-1] == "browser_closed"
-        assert Path(path).is_file()
+        assert path.name == "plan.json"
+        assert path.with_name("preview.html").is_file()
         order.append("preview_open")
-        return True
+        return 0
 
     monkeypatch.setattr(cli, "browser_session", session)
     monkeypatch.setattr(cli, "scan_to_folder", scan)
-    monkeypatch.setattr(cli, "open_preview_file", open_file)
+    monkeypatch.setattr(cli, "reopen_preview", open_file)
     assert cli.execute("scan", {}, "chromium", month="2026-09", open_preview=True) == 0
     assert order == ["browser_open", "scan", "browser_closed", "preview_open"]
 
@@ -100,13 +101,13 @@ def test_reopen_rebuilds_missing_html_without_logging_in(monkeypatch, tmp_path):
     def no_browser(*args):
         pytest.fail("Saved preview must not open an automation session")
 
-    def open_file(preview_path):
-        assert preview_path == path.parent / "preview.html"
-        assert "테스트 회사" in preview_path.read_text()
-        return True
+    def open_file(plan_path, config):
+        assert plan_path == path
+        assert "테스트 회사" in path.with_name("preview.html").read_text()
+        return 0
 
     monkeypatch.setattr(cli, "browser_session", no_browser)
-    monkeypatch.setattr(cli, "open_preview_file", open_file)
+    monkeypatch.setattr(cli, "start_preview", open_file)
     assert cli.execute("preview", {}, "chromium") == 0
 
 
@@ -114,6 +115,38 @@ def test_menu_5_reopens_saved_preview(monkeypatch):
     answers = iter(["5", "0"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     reopened = []
-    monkeypatch.setattr(cli, "reopen_preview", lambda: reopened.append(True))
+    monkeypatch.setattr(cli, "reopen_preview", lambda **kwargs: reopened.append(True))
     assert cli.menu({}, "chromium") == 0
     assert reopened == [True]
+
+
+def test_empty_selection_never_opens_jobis(monkeypatch, tmp_path, capsys):
+    path = saved_plan(tmp_path)
+    monkeypatch.setattr(cli, "browser_session", lambda *a: pytest.fail("No selected receipts"))
+    assert cli.execute("apply", {}, "chromium", plan_path=path) == 0
+    assert "0건" in capsys.readouterr().out
+
+
+def test_menu_applies_the_selection_shown_before_confirmation(monkeypatch, tmp_path):
+    from jobis_meals.reports import write_json
+    from jobis_meals.selection import default_selection
+    path = saved_plan(tmp_path)
+    _, plan = cli.load_plan(path)
+    plan["entries"] = [{"receipt": {"id": "1"}, "decision": {"action": "change"}}]
+    write_json(path, plan)
+    original = default_selection(plan)
+    write_json(path.with_name("selection.json"), original)
+    monkeypatch.setattr(cli, "latest_plan", lambda: path)
+    answers = iter(["3", "", "적용", "0"])
+
+    def answer(_):
+        value = next(answers)
+        if value == "적용":
+            write_json(path.with_name("selection.json"), {**original, "selected_ids": []})
+        return value
+
+    received = []
+    monkeypatch.setattr("builtins.input", answer)
+    monkeypatch.setattr(cli, "execute", lambda *a, **kw: received.append(kw["selection"]))
+    cli.menu({}, "chromium")
+    assert received == [original]

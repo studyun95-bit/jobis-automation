@@ -11,10 +11,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from jobis_meals.browser import HEADERS, JobisUI, receipt_id
-from jobis_meals.reports import preview
+from jobis_meals.reports import digest, preview, write_json
+from jobis_meals.preview_server import PreviewServer
+from jobis_meals.selection import default_selection, load_selection
 from jobis_meals.workflow import apply_plan, build_plan, preflight, verify_plan
 
 
@@ -309,6 +311,103 @@ def test_preview_filters_and_escapes_content(browser, ui, config, tmp_path):
         assert "'=HYPERLINK" in (tmp_path / 'preview.csv').read_text(encoding='utf-8-sig')
     finally:
         page.close()
+
+
+def test_preview_toggles_persist_and_control_real_apply_flow(ui, site, config, tmp_path):
+    plan = make(ui, config)
+    original = copy.deepcopy(site["rows"])
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    page = ui.context.new_page()
+    try:
+        page.goto(server.url)
+        for rid in ("2", "4", "5"):
+            page.get_by_role("switch", name=rid + " 적용", exact=True).uncheck()
+        page.get_by_role("switch", name="3 적용", exact=True).check()
+        expect(page.get_by_role("button", name="선택 저장", exact=True)).to_be_disabled()
+        page.get_by_role("spinbutton", name="3 인원", exact=True).fill("2")
+        page.get_by_role("spinbutton", name="3 인원", exact=True).blur()
+        expect(page.locator('tr[data-id="3"] [data-field=target]')).to_have_text("18000")
+        page.get_by_role("spinbutton", name="3 인원", exact=True).fill("1")
+        page.get_by_role("spinbutton", name="3 인원", exact=True).blur()
+        expect(page.locator('tr[data-id="3"] [data-field=target]')).to_have_text("10000")
+        page.get_by_role("button", name="선택 저장", exact=True).click()
+        expect(page.locator("#message")).to_contain_text("2건 저장 완료")
+        selected = load_selection(tmp_path, plan, config)
+        assert selected["selected_ids"] == ["3", "1"]
+        assert selected["overrides"] == {"3": {"kind": "lunch", "count": 1}}
+        page.reload()
+        expect(page.get_by_role("switch", name="3 적용", exact=True)).to_be_checked()
+        expect(page.get_by_role("switch", name="2 적용", exact=True)).not_to_be_checked()
+        assert not site["saves"]
+    finally:
+        page.close()
+        server.close()
+    result = apply_plan(ui, config, plan, tmp_path)
+    assert result["success"] and [s["id"] for s in site["saves"]] == ["3", "1"]
+    assert (site["rows"]["3"]["amount"], site["rows"]["3"]["purpose"]) == (10000, "식비")
+    assert all(site["rows"][rid] == original[rid] for rid in ("2", "4", "5"))
+    verified = verify_plan(ui, config, plan, tmp_path)
+    assert verified["success"] and not verified["remaining_changes"]
+    assert set(verified["skipped_ids"]) == {"2", "4", "5"}
+    assert result["selection"] == selected
+
+
+def test_all_deselected_means_no_saves(ui, site, config, tmp_path):
+    plan = make(ui, config)
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    page = ui.context.new_page()
+    try:
+        page.goto(server.url)
+        page.get_by_role("button", name="전체 선택 해제", exact=True).click()
+        page.get_by_role("button", name="선택 저장", exact=True).click()
+        expect(page.locator("#message")).to_contain_text("0건 저장 완료")
+        page.reload()
+        assert page.locator('.apply-toggle:checked').count() == 0
+    finally:
+        page.close()
+        server.close()
+    pages_before = list(site["seen_pages"])
+    result = apply_plan(ui, config, plan, tmp_path)
+    assert result["success"] and result["items"] == []
+    assert not site["saves"] and site["seen_pages"] == pages_before
+    assert verify_plan(ui, config, plan, tmp_path)["success"]
+
+
+def test_manual_include_still_rechecks_receipt_before_any_save(ui, site, config, tmp_path):
+    plan = make(ui, config)
+    selected = {**default_selection(plan), "selected_ids": ["3"],
+                "overrides": {"3": {"kind": "lunch", "count": 1}}}
+    write_json(tmp_path / "selection.json", selected)
+    site["rows"]["3"]["memo"] = "출장 점심 / 다른 내용"
+    with pytest.raises(RuntimeError, match="내역이 바뀌"):
+        apply_plan(ui, config, plan, tmp_path)
+    assert not site["saves"]
+
+
+def test_preview_rejects_foreign_requests_stale_tabs_and_changed_plan(ui, config, tmp_path):
+    plan = make(ui, config)
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    request = ui.context.request
+    endpoint = server.url + "selection"
+    initial = default_selection(plan)
+    payload = {"selection": {**initial, "selected_ids": []}, "revision": digest(initial)}
+    try:
+        assert request.post(endpoint, data=payload).status == 403
+        headers = {"Origin": server.origin}
+        assert request.post(endpoint, data=payload, headers=headers).status == 200
+        assert request.post(endpoint, data=payload, headers=headers).status == 409
+        assert not load_selection(tmp_path, plan, config)["selected_ids"]
+        plan["month"] = "2026-08"
+        write_json(path, plan)
+        assert request.post(endpoint, data=payload, headers=headers).status == 400
+    finally:
+        server.close()
 
 
 @pytest.mark.parametrize("url", ["https://evil.example/receipts/form?r_idx=1", "https://service.jobisbiz.co/receipts/delete?r_idx=1", "https://service.jobisbiz.co/receipts/form?r_idx=1&r_idx=2"])

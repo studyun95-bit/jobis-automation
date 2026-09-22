@@ -5,6 +5,7 @@ import hashlib
 import html
 import json
 import os
+import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -41,32 +42,67 @@ def csv_safe(value):
     return "'" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value
 
 
-def preview(folder: Path, plan: dict):
-    labels = {"change": "수정 예정", "keep": "기준 충족", "review": "확인 필요", "excluded": "대상 제외"}
-    columns = ["영수증ID", "일자", "사용자", "업체명", "기존금액", "예정금액", "현재목적", "예정목적", "인원", "인식한사람", "상태", "판단근거", "메모"]
+LABELS = {"change": "수정 예정", "keep": "기준 충족", "review": "확인 필요", "excluded": "대상 제외"}
+COLUMNS = ["영수증ID", "일자", "사용자", "업체명", "기존금액", "예정금액", "현재목적", "예정목적", "인원", "인식한사람", "검사 분류", "판단근거", "메모"]
+
+
+def preview_rows(plan, config, selection):
+    from .selection import manual_decision
     rows = []
     for entry in plan["entries"]:
         r, d = entry["receipt"], entry["decision"]
+        if r["id"] in selection["overrides"]:
+            d = manual_decision(r, selection["overrides"][r["id"]], config).to_dict()
         rows.append([r["id"], r["date"], r["user"], r["merchant"], r["amount"], d["target"], r["purpose"],
                      "식비" if d["action"] in ("change", "keep") else r["purpose"], d["count"],
-                     ", ".join(d["names"]), labels[d["action"]], d["reason"], r["memo"]])
+                     ", ".join(d["names"]), LABELS[entry["decision"]["action"]], d["reason"], r["memo"]])
+    return rows
+
+
+def render_preview(plan, config=None, selection=None, endpoint=None, revision=None):
+    from .selection import can_include, default_selection
+    selection = selection if selection is not None else default_selection(plan)
+    counts = Counter(e["decision"]["action"] for e in plan["entries"])
+    cards = "".join(f'<div><b>{counts[k]}</b>{v}</div>' for k, v in LABELS.items())
+    body = []
+    entries = []
+    selected = set(selection["selected_ids"])
+    for entry, row in zip(plan["entries"], preview_rows(plan, config, selection)):
+        r, d = entry["receipt"], entry["decision"]
+        rid = html.escape(r["id"], quote=True)
+        allowed = d["action"] == "change" or (d["action"] == "excluded" and config and can_include(r, config))
+        checked = " checked" if r["id"] in selected else ""
+        disabled = "" if allowed and endpoint else " disabled"
+        control = f'<label class="switch"><input type="checkbox" role="switch" class="apply-toggle" aria-label="{rid} 적용"{checked}{disabled}><span></span></label><span class="choice-label"></span>'
+        if d["action"] == "excluded" and allowed:
+            night = '<option value="night">야간</option>' if r["user"] in config["night_users"] else ""
+            control += (f'<div class="manual" hidden><label>식대 <select class="kind" aria-label="{rid} 식대 종류"><option value="lunch">점심</option>{night}</select></label>'
+                        f'<label>인원 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 인원"> 명</label></div>')
+        fields = {5: "target", 7: "purpose", 8: "count", 11: "reason"}
+        cells = ''.join('<td' + (f' data-field="{fields[i]}"' if i in fields else '') + '>'
+                        + html.escape(str(v if v is not None else "—")) + '</td>' for i, v in enumerate(row))
+        body.append(f'<tr data-id="{rid}" data-status="{d["action"]}"><td class="choice">{control}</td>{cells}</tr>')
+        entries.append({"id": r["id"], "amount": r["amount"], "purpose": r["purpose"], "decision": d})
+    settings = {k: config[k] for k in ("lunch_limit", "night_limit")} if config else {}
+    payload = {"entries": entries, "settings": settings, "selection": selection,
+               "endpoint": endpoint, "revision": revision}
+    encoded = json.dumps(payload, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    replacements = {"TITLE": html.escape(plan["company"] + " / " + plan["month"]), "CARDS": cards,
+                    "HEAD": '<th>적용 선택</th>' + ''.join('<th>' + c + '</th>' for c in COLUMNS),
+                    "BODY": ''.join(body), "DATA": encoded}
+    template = Path(__file__).with_name("preview.html").read_text(encoding="utf-8")
+    return re.sub(r"__(TITLE|CARDS|HEAD|BODY|DATA)__", lambda m: replacements[m[1]], template)
+
+
+def preview(folder: Path, plan: dict, config=None, selection=None):
+    from .selection import default_selection
+    selection = selection if selection is not None else default_selection(plan)
+    rows = preview_rows(plan, config, selection)
+    selected = set(selection["selected_ids"])
     with (folder / "preview.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(columns)
-        writer.writerows([[csv_safe(v) for v in row] for row in rows])
+        writer.writerow(["적용 선택"] + COLUMNS)
+        writer.writerows([["적용" if row[0] in selected else "제외"] + [csv_safe(v) for v in row] for row in rows])
     counts = Counter(e["decision"]["action"] for e in plan["entries"])
-    cards = "".join(f'<div><b>{counts[k]}</b>{v}</div>' for k, v in labels.items())
-    body = "".join('<tr data-status="' + e["decision"]["action"] + '">' +
-                   "".join("<td>" + html.escape(str(v if v is not None else "—")) + "</td>" for v in row) + "</tr>"
-                   for e, row in zip(plan["entries"], rows))
-    doc = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>자비스 식대 변경 미리보기</title><style>
-body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;color:#172b40;background:#f3f6f9;margin:32px}h1{font-size:28px}.cards{display:flex;gap:16px;margin:24px 0}.cards div{background:white;border-radius:12px;padding:18px 24px;min-width:110px}.cards b{display:block;font-size:28px;margin-bottom:5px}input,select{padding:10px;border:1px solid #ccd5df;border-radius:6px;margin:0 8px 16px 0}.table{overflow:auto;background:white;border-radius:8px}table{border-collapse:collapse;width:100%;white-space:nowrap}th,td{padding:11px;border-bottom:1px solid #e5eaf0;text-align:left}th{background:#e9f0f6;position:sticky;top:0}tr[data-status=review]{background:#fff5dc}tr[data-status=change]{background:#edfaf4}td:last-child{white-space:normal;min-width:260px}p{color:#526276}</style>
-<h1>자비스 식대 변경 미리보기</h1><p>__TITLE__ · 저장 전 검사 결과입니다. 확인 필요 항목은 적용에서 제외됩니다.</p>
-<div class="cards">__CARDS__</div><input id="q" placeholder="이름·메모·영수증ID 검색"><select id="s"><option value="">전체 상태</option><option value="change">수정 예정</option><option value="review">확인 필요</option><option value="keep">기준 충족</option><option value="excluded">대상 제외</option></select>
-<div class="table"><table><thead><tr>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
-<script>function filter(){const q=document.getElementById('q').value.toLowerCase(),s=document.getElementById('s').value;document.querySelectorAll('tbody tr').forEach(r=>r.hidden=!(r.textContent.toLowerCase().includes(q)&&(!s||r.dataset.status===s)))}document.getElementById('q').oninput=filter;document.getElementById('s').onchange=filter;</script></html>"""
-    doc = doc.replace("__TITLE__", html.escape(plan["company"] + " / " + plan["month"]))
-    doc = doc.replace("__CARDS__", cards).replace("__HEAD__", "".join("<th>" + c + "</th>" for c in columns)).replace("__BODY__", body)
-    (folder / "preview.html").write_text(doc, encoding="utf-8")
+    (folder / "preview.html").write_text(render_preview(plan, config, selection), encoding="utf-8")
     return dict(counts)
