@@ -29,6 +29,20 @@ def can_include(receipt, config):
     return receipt["status"] in config["eligible_statuses"] and receipt["amount"] > 0
 
 
+def meal_types(config):
+    """Per-person limits for explicit choices in the preview."""
+    result = {}
+    for kind, label, key, default in (("lunch", "점심", "lunch_limit", 10000),
+                                      ("overtime", "야근", "overtime_limit", 10000),
+                                      ("night", "야간", "night_limit", 12000),
+                                      ("moin_lunch", "모인런치", "moin_lunch_limit", 15000)):
+        limit = config.get(key, default)
+        if type(limit) is not int or limit <= 0:
+            raise ValueError(key + "는 양의 정수여야 합니다.")
+        result[kind] = {"label": label, "limit": limit}
+    return result
+
+
 def manual_decision(receipt, choice, config):
     r = Receipt(**receipt)
     if not can_include(receipt, config):
@@ -36,14 +50,13 @@ def manual_decision(receipt, choice, config):
     if not isinstance(choice, dict) or set(choice) != {"kind", "count"}:
         raise ValueError(f"{r.id}: 식대 종류와 인원을 확인하세요.")
     kind, count = choice["kind"], choice["count"]
-    if kind not in ("lunch", "night") or type(count) is not int or not 1 <= count <= 100:
+    kinds = meal_types(config)
+    if not isinstance(kind, str) or kind not in kinds or type(count) is not int or not 1 <= count <= 100:
         raise ValueError(f"{r.id}: 식대 종류와 인원(1~100명)을 확인하세요.")
-    if kind == "night" and (r.user not in config["night_users"] or count != 1):
-        raise ValueError(f"{r.id}: 지정된 야간식대는 해당 직원의 1명 식대만 가능합니다.")
-    limit = config["night_limit"] if kind == "night" else config["lunch_limit"] * count
+    limit = kinds[kind]["limit"] * count
     target = min(r.amount, limit)
     action = "keep" if (r.amount, r.purpose) == (target, "식비") else "change"
-    label = "야간" if kind == "night" else "점심"
+    label = kinds[kind]["label"]
     return Decision(action, kind, target, count, (), f"사용자가 {label} {count}명으로 확인 / 한도 {limit:,}원")
 
 
@@ -54,18 +67,18 @@ def validate_selection(plan, selection, config):
     if not isinstance(ids, list) or not all(isinstance(v, str) for v in ids) or len(ids) != len(set(ids)):
         raise ValueError("선택한 영수증 ID가 잘못되었습니다.")
     if not isinstance(overrides, dict):
-        raise ValueError("제외 항목의 식대 종류와 인원을 확인하세요.")
+        raise ValueError("직접 선택한 식대 종류와 인원을 확인하세요.")
     entries = {e["receipt"]["id"]: e for e in plan["entries"]}
     manual_ids = set()
     for rid in ids:
         entry = entries.get(rid)
         if entry is None or entry["decision"]["action"] not in ("change", "excluded"):
             raise ValueError(f"{rid}: 적용 대상으로 선택할 수 없는 항목입니다.")
-        if entry["decision"]["action"] == "excluded":
+        if entry["decision"]["action"] == "excluded" or rid in overrides:
             manual_decision(entry["receipt"], overrides.get(rid), config)
             manual_ids.add(rid)
     if set(overrides) != manual_ids:
-        raise ValueError("선택한 제외 항목과 입력한 식대 정보가 다릅니다.")
+        raise ValueError("선택한 항목과 입력한 식대 정보가 다릅니다.")
     # Store selections in original receipt order, independent of click order.
     chosen = set(ids)
     return {"schema": 1, "plan_hash": digest(plan),
@@ -82,4 +95,6 @@ def load_selection(folder, plan, config):
 def selection_summary(plan, selection):
     chosen = set(selection["selected_ids"])
     changes = {e["receipt"]["id"] for e in plan["entries"] if e["decision"]["action"] == "change"}
-    return {"selected": len(chosen), "manual": len(selection["overrides"]), "skipped": len(changes - chosen)}
+    excluded = {e["receipt"]["id"] for e in plan["entries"] if e["decision"]["action"] == "excluded"}
+    return {"selected": len(chosen), "manual": len(chosen & excluded), "skipped": len(changes - chosen),
+            "adjusted": len(set(selection["overrides"]) & changes)}

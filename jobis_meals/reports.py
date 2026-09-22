@@ -55,18 +55,21 @@ def preview_rows(plan, config, selection):
             d = manual_decision(r, selection["overrides"][r["id"]], config).to_dict()
         rows.append([r["id"], r["date"], r["user"], r["merchant"], r["amount"], d["target"], r["purpose"],
                      "식비" if d["action"] in ("change", "keep") else r["purpose"], d["count"],
-                     ", ".join(d["names"]), LABELS[entry["decision"]["action"]], d["reason"], r["memo"]])
+                     ", ".join(entry["decision"]["names"]), LABELS[entry["decision"]["action"]], d["reason"], r["memo"]])
     return rows
 
 
 def render_preview(plan, config=None, selection=None, endpoint=None, revision=None):
-    from .selection import can_include, default_selection
+    from .selection import can_include, default_selection, meal_types
     selection = selection if selection is not None else default_selection(plan)
     counts = Counter(e["decision"]["action"] for e in plan["entries"])
     cards = "".join(f'<div><b>{counts[k]}</b>{v}</div>' for k, v in LABELS.items())
     body = []
     entries = []
     selected = set(selection["selected_ids"])
+    kinds = meal_types(config or {})
+    options = ''.join(f'<option value="{kind}">{spec["label"]} · {spec["limit"]:,}원/인</option>'
+                      for kind, spec in kinds.items())
     for entry, row in zip(plan["entries"], preview_rows(plan, config, selection)):
         r, d = entry["receipt"], entry["decision"]
         rid = html.escape(r["id"], quote=True)
@@ -74,17 +77,15 @@ def render_preview(plan, config=None, selection=None, endpoint=None, revision=No
         checked = " checked" if r["id"] in selected else ""
         disabled = "" if allowed and endpoint else " disabled"
         control = f'<label class="switch"><input type="checkbox" role="switch" class="apply-toggle" aria-label="{rid} 적용"{checked}{disabled}><span></span></label><span class="choice-label"></span>'
-        if d["action"] == "excluded" and allowed:
-            night = '<option value="night">야간</option>' if r["user"] in config["night_users"] else ""
-            control += (f'<div class="manual" hidden><label>식대 <select class="kind" aria-label="{rid} 식대 종류"><option value="lunch">점심</option>{night}</select></label>'
+        if allowed:
+            control += (f'<div class="manual" hidden><label>식대 <select class="kind" aria-label="{rid} 식대 종류">{options}</select></label>'
                         f'<label>인원 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 인원"> 명</label></div>')
         fields = {5: "target", 7: "purpose", 8: "count", 11: "reason"}
         cells = ''.join('<td' + (f' data-field="{fields[i]}"' if i in fields else '') + '>'
                         + html.escape(str(v if v is not None else "—")) + '</td>' for i, v in enumerate(row))
         body.append(f'<tr data-id="{rid}" data-status="{d["action"]}"><td class="choice">{control}</td>{cells}</tr>')
         entries.append({"id": r["id"], "amount": r["amount"], "purpose": r["purpose"], "decision": d})
-    settings = {k: config[k] for k in ("lunch_limit", "night_limit")} if config else {}
-    payload = {"entries": entries, "settings": settings, "selection": selection,
+    payload = {"entries": entries, "meal_types": kinds, "selection": selection,
                "endpoint": endpoint, "revision": revision}
     encoded = json.dumps(payload, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     replacements = {"TITLE": html.escape(plan["company"] + " / " + plan["month"]), "CARDS": cards,

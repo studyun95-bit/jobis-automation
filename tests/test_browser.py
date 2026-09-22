@@ -377,6 +377,72 @@ def test_all_deselected_means_no_saves(ui, site, config, tmp_path):
     assert verify_plan(ui, config, plan, tmp_path)["success"]
 
 
+@pytest.mark.parametrize("kind,target", [("overtime", 10000), ("night", 12000), ("moin_lunch", 15000)])
+def test_preview_new_meal_choices_reach_saved_receipt(ui, site, config, tmp_path, kind, target):
+    plan = make(ui, config)
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    page = ui.context.new_page()
+    try:
+        page.goto(server.url)
+        page.get_by_role("button", name="전체 선택 해제", exact=True).click()
+        page.get_by_role("switch", name="3 적용", exact=True).check()
+        kind_field = page.get_by_role("combobox", name="3 식대 종류", exact=True)
+        assert kind_field.locator("option").all_text_contents() == [
+            "점심 · 10,000원/인", "야근 · 10,000원/인", "야간 · 12,000원/인", "모인런치 · 15,000원/인"]
+        kind_field.select_option(kind)
+        page.get_by_role("spinbutton", name="3 인원", exact=True).fill("1")
+        expect(page.locator('tr[data-id="3"] [data-field=target]')).to_have_text(str(target))
+        page.get_by_role("button", name="선택 저장", exact=True).click()
+        expect(page.locator("#message")).to_contain_text("1건 저장 완료")
+        page.reload()
+        expect(kind_field).to_have_value(kind)
+        expect(page.locator('tr[data-id="3"] [data-field=target]')).to_have_text(str(target))
+    finally:
+        page.close()
+        server.close()
+    result = apply_plan(ui, config, plan, tmp_path)
+    assert result["success"] and [s["id"] for s in site["saves"]] == ["3"]
+    assert (site["rows"]["3"]["amount"], site["rows"]["3"]["purpose"]) == (target, "식비")
+    assert result["selection"]["overrides"] == {"3": {"kind": kind, "count": 1}}
+    assert verify_plan(ui, config, plan, tmp_path)["success"]
+
+
+def test_change_row_meal_editor_preserves_defaults_and_applies_override(ui, site, config, tmp_path):
+    plan = make(ui, config)
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    page = ui.context.new_page()
+    try:
+        page.goto(server.url)
+        kind = page.get_by_role("combobox", name="2 식대 종류", exact=True)
+        people = page.get_by_role("spinbutton", name="2 인원", exact=True)
+        expect(kind).to_have_value("lunch")
+        expect(people).to_have_value("3")
+        expect(page.get_by_role("button", name="선택 저장", exact=True)).to_be_disabled()
+        page.get_by_role("button", name="전체 선택 해제", exact=True).click()
+        page.get_by_role("switch", name="2 적용", exact=True).check()
+        kind.select_option("moin_lunch")
+        people.fill("2")
+        expect(page.locator('tr[data-id="2"] [data-field=target]')).to_have_text("30000")
+        people.fill("1")
+        expect(page.locator('tr[data-id="2"] [data-field=target]')).to_have_text("15000")
+        page.get_by_role("button", name="선택 저장", exact=True).click()
+        expect(page.locator("#message")).to_contain_text("1건 저장 완료")
+        page.reload()
+        expect(kind).to_have_value("moin_lunch")
+        expect(people).to_have_value("1")
+    finally:
+        page.close()
+        server.close()
+    result = apply_plan(ui, config, plan, tmp_path)
+    assert result["success"] and [s["id"] for s in site["saves"]] == ["2"]
+    assert site["rows"]["2"]["amount"] == 15000
+    assert verify_plan(ui, config, plan, tmp_path)["success"]
+
+
 def test_manual_include_still_rechecks_receipt_before_any_save(ui, site, config, tmp_path):
     plan = make(ui, config)
     selected = {**default_selection(plan), "selected_ids": ["3"],

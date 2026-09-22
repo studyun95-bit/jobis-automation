@@ -31,6 +31,9 @@ def read_config(path):
     for key in ("lunch_limit", "night_limit"):
         if type(config.get(key)) is not int or config[key] <= 0:
             raise ValueError(key + "는 양의 정수여야 합니다.")
+    for key in ("overtime_limit", "moin_lunch_limit"):
+        if key in config and (type(config[key]) is not int or config[key] <= 0):
+            raise ValueError(key + "는 양의 정수여야 합니다.")
     for key in ("night_users", "name_only_lunch_users", "eligible_statuses", "excluded_patterns", "non_meal_patterns"):
         if not isinstance(config.get(key), list) or not all(isinstance(s, str) and s for s in config[key]):
             raise ValueError(key + " 설정을 확인하세요.")
@@ -246,7 +249,7 @@ def menu(config, browser):
                 if choice == "3":
                     selection = load_selection(path.parent, plan, config)
                     counts = selection_summary(plan, selection)
-                    print(f"저장된 선택 {counts['selected']}건 (대상 제외에서 추가 {counts['manual']}건 / 선택 해제 {counts['skipped']}건)")
+                    print(f"저장된 선택 {counts['selected']}건 (대상 제외에서 추가 {counts['manual']}건 / 식대 설정 변경 {counts['adjusted']}건 / 선택 해제 {counts['skipped']}건)")
                     if not counts["selected"]:
                         print("선택한 항목이 없습니다. 메뉴 5번에서 토글을 켜고 선택 저장을 누르세요.")
                         continue
