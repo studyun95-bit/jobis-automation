@@ -253,7 +253,7 @@ def menu(config, browser):
                     if not counts["selected"]:
                         print("선택한 항목이 없습니다. 메뉴 5번에서 토글을 켜고 선택 저장을 누르세요.")
                         continue
-                    if input("미리보기를 확인했으면 '적용' 입력: ").strip() != "적용":
+                    if input("미리보기를 확인했으면 'y' 입력: ").strip().lower() != "y":
                         print("취소했습니다.")
                         continue
                 execute("apply" if choice == "3" else "verify", config, browser, plan_path=path,

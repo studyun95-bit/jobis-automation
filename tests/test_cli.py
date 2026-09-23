@@ -127,7 +127,8 @@ def test_empty_selection_never_opens_jobis(monkeypatch, tmp_path, capsys):
     assert "0건" in capsys.readouterr().out
 
 
-def test_menu_applies_the_selection_shown_before_confirmation(monkeypatch, tmp_path):
+@pytest.mark.parametrize("confirmation", ["y", "Y", " y "])
+def test_menu_applies_the_selection_shown_before_confirmation(monkeypatch, tmp_path, confirmation):
     from jobis_meals.reports import write_json
     from jobis_meals.selection import default_selection
     path = saved_plan(tmp_path)
@@ -137,11 +138,11 @@ def test_menu_applies_the_selection_shown_before_confirmation(monkeypatch, tmp_p
     original = default_selection(plan)
     write_json(path.with_name("selection.json"), original)
     monkeypatch.setattr(cli, "latest_plan", lambda: path)
-    answers = iter(["3", "", "적용", "0"])
+    answers = iter(["3", "", confirmation, "0"])
 
     def answer(_):
         value = next(answers)
-        if value == "적용":
+        if value == confirmation:
             write_json(path.with_name("selection.json"), {**original, "selected_ids": []})
         return value
 
