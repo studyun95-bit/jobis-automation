@@ -12,7 +12,7 @@
 <div class="toolbar">
   <div class="actions"><strong id="summary"></strong><button id="save" class="primary" disabled>선택 저장</button><button id="all-off">전체 선택 해제</button><button id="reset">검사 기본값으로</button></div>
   <p id="message" role="status" aria-live="polite"></p>
-  <p class="muted">식대 종류와 인원을 선택하면 예정금액이 계산됩니다. 대상 제외 항목은 인원을 직접 입력하세요. 예정금액은 기존 금액과 인원 × 종류별 한도 중 작은 금액이며, 사용목적은 식비입니다. 확인 필요·기준 충족 항목은 선택할 수 없습니다.</p>
+  <p class="muted">분류와 배수를 선택하면 예정금액이 계산됩니다. 대상 제외 항목은 배수를 직접 입력하세요. 예정금액은 기존 금액과 배수 × 분류별 한도 중 작은 금액이며, 사용목적은 식비입니다. 확인 필요·기준 충족 항목은 선택할 수 없습니다.</p>
 </div>
 <div class="filters"><input id="q" aria-label="영수증 검색" placeholder="이름·메모·영수증ID 검색"><select id="s" aria-label="검사 분류"><option value="">전체 상태</option><option value="change">수정 예정</option><option value="review">확인 필요</option><option value="keep">기준 충족</option><option value="excluded">대상 제외</option></select><label><input id="chosen-only" type="checkbox"> 선택한 항목만 보기</label><span id="visible-count" class="muted"></span></div>
 <div class="table"><table><thead><tr>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
@@ -66,7 +66,7 @@ function update(){
       const valid=Boolean(spec)&&Number.isInteger(count)&&count>=1&&count<=100;
       input.setAttribute('aria-invalid',String(!valid));
       if(valid){if(changed){const limit=spec.limit*count;target=Math.min(e.amount,limit);purpose='식비';reason=`사용자가 ${spec.label} ${count}명으로 확인 / 한도 ${limit.toLocaleString('ko-KR')}원`;}}
-      else{invalid++;target=null;count=null;purpose='식비';reason='적용할 식대 종류와 인원을 입력하세요.';}
+      else{invalid++;target=null;count=null;purpose='식비';reason='적용할 분류와 배수를 입력하세요.';}
     }
     row.querySelector('[data-field=target]').textContent=target??'—';row.querySelector('[data-field=count]').textContent=count??'—';row.querySelector('[data-field=purpose]').textContent=purpose;row.querySelector('[data-field=reason]').textContent=reason;
   }
@@ -74,7 +74,7 @@ function update(){
   document.getElementById('summary').textContent=`적용 선택 ${selected}건 · 제외에서 추가 ${manualCount}건 · 설정 변경 ${adjusted}건`;
   save.disabled=!editable||busy||!dirty||invalid>0;
   message.className=invalid?'error':'';
-  message.textContent=invalid?`인원을 확인할 항목 ${invalid}건이 있습니다.`:dirty?'선택이 바뀌었습니다. 선택 저장을 눌러 반영하세요.':'저장된 선택입니다. 프로그램 메뉴 3번에서 적용할 수 있습니다.';
+  message.textContent=invalid?`배수를 확인할 항목 ${invalid}건이 있습니다.`:dirty?'선택이 바뀌었습니다. 선택 저장을 눌러 반영하세요.':'저장된 선택입니다. 프로그램 메뉴 3번에서 적용할 수 있습니다.';
   filter();
 }
 restore(saved);update();

@@ -78,8 +78,8 @@ def render_preview(plan, config=None, selection=None, endpoint=None, revision=No
         disabled = "" if allowed and endpoint else " disabled"
         control = f'<label class="switch"><input type="checkbox" role="switch" class="apply-toggle" aria-label="{rid} 적용"{checked}{disabled}><span></span></label><span class="choice-label"></span>'
         if allowed:
-            control += (f'<div class="manual" hidden><label>식대 <select class="kind" aria-label="{rid} 식대 종류">{options}</select></label>'
-                        f'<label>인원 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 인원"> 명</label></div>')
+            control += (f'<div class="manual" hidden><label>분류 <select class="kind" aria-label="{rid} 분류">{options}</select></label>'
+                        f'<label>배수 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 배수"> 배</label></div>')
         fields = {5: "target", 7: "purpose", 8: "count", 11: "reason"}
         cells = ''.join('<td' + (f' data-field="{fields[i]}"' if i in fields else '') + '>'
                         + html.escape(str(v if v is not None else "—")) + '</td>' for i, v in enumerate(row))
