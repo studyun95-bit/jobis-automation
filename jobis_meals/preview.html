@@ -4,6 +4,7 @@
 <style>
 *{box-sizing:border-box}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;color:#172b40;background:#f3f6f9;margin:28px}h1{font-size:28px;margin-bottom:10px}p{color:#526276;line-height:1.7}.cards{display:flex;flex-wrap:wrap;gap:14px;margin:24px 0}.cards div{background:white;border:1px solid #e1e8ef;border-radius:12px;padding:18px 24px;min-width:135px}.cards b{display:block;font-size:28px;margin-bottom:5px}.toolbar{background:#fff;border:1px solid #dce5ee;border-radius:12px;padding:18px;margin-bottom:20px}.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.actions strong{font-size:18px;margin-right:8px}input,select,button{font:inherit}input:not([type=checkbox]),select{padding:9px;border:1px solid #b9c7d6;border-radius:6px;background:white}button{padding:10px 16px;border:1px solid #b8c8d6;border-radius:7px;background:white;cursor:pointer}button.primary{background:#14654f;color:white;border-color:#14654f}button:disabled{cursor:default;opacity:.5}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #5b9be0;outline-offset:2px}#message{margin:12px 0 0}#message.error{color:#b03026}.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}#q{min-width:265px}.table{overflow:auto;background:white;border:1px solid #e0e7ef;border-radius:10px;max-height:65vh}table{border-collapse:separate;border-spacing:0;width:100%;white-space:nowrap}th,td{padding:12px;border-bottom:1px solid #e5eaf0;text-align:left}th{background:#e9f0f6;position:sticky;top:0;z-index:2}th:first-child{left:0;z-index:4}td.choice{position:sticky;left:0;z-index:1;background:#fff;min-width:170px;border-right:1px solid #dce5ee}tr[data-status=review]{background:#fff8e6}tr[data-status=change]{background:#f2faf6}tr[data-selected=true] td.choice{background:#edf8f2}td:last-child{white-space:normal;min-width:260px}.switch{display:inline-block;position:relative;width:38px;height:22px;vertical-align:middle;margin-right:9px}.switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}.switch span{display:block;width:100%;height:100%;border-radius:14px;background:#adb9c5;transition:background .15s}.switch span:after{content:"";display:block;position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:white;transition:transform .15s}.switch input:checked+span{background:#167458}.switch input:checked+span:after{transform:translateX(16px)}.switch input:disabled{cursor:default}.switch input:disabled+span{opacity:.4}.switch input:focus-visible+span{outline:3px solid #5b9be0;outline-offset:3px}.manual{margin-top:12px}.manual label{display:block;margin-top:8px}.manual input{width:82px}.manual select{width:82px}#offline{background:#fff3da;border-radius:8px;padding:12px 16px}.muted{color:#64758a;font-size:13px}@media(max-width:600px){body{margin:16px}.cards div{min-width:calc(50% - 7px);padding:14px}h1{font-size:23px}.table{max-height:60vh}}
 .manual select{width:220px}
+.column-button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:4px 0;border:0;border-radius:3px;background:transparent;font-weight:600;white-space:nowrap}.column-button.active{color:#096349}.column-indicator{font-size:12px;color:#63788d}.column-button.active .column-indicator{color:#096349}#column-menu{position:fixed;margin:0;padding:18px;width:350px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;border:1px solid #c4d2df;border-radius:12px;box-shadow:0 12px 40px #172b4030;color:inherit}#column-menu::backdrop{background:#172b4008}.menu-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.menu-heading strong{font-size:17px}#column-close{padding:4px 9px;font-size:20px}.sort-actions{display:flex;gap:6px}.sort-actions button{flex:1;padding:9px 5px}.sort-actions button[aria-pressed=true]{background:#e4f3ed;border-color:#167458;color:#096349}.filter-search{display:block;margin:14px 0 10px}.filter-search input{display:block;width:100%;margin-top:6px}.filter-range{display:flex;gap:10px;margin:12px 0}.filter-range[hidden]{display:none}.filter-range label{flex:1;min-width:0}.filter-range input{display:block;width:100%;margin-top:6px}.value-actions{display:flex;gap:8px;margin:10px 0}.value-actions button{padding:6px 10px}.filter-values{height:190px;overflow:auto;border:1px solid #dce5ee;border-radius:6px;padding:6px}.filter-value{display:flex;align-items:flex-start;gap:8px;padding:6px;overflow-wrap:anywhere;line-height:1.5}.filter-value input{margin-top:4px;flex-shrink:0}.filter-value:hover{background:#f1f6fa}.menu-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px}.menu-footer button{padding:9px 12px}#filter-error{color:#b03026;margin:8px 0}#view-help{margin:-6px 0 12px}#clear-view{padding:8px 12px}.empty-table{padding:24px;text-align:center;background:#fff;border:1px solid #dce5ee;border-radius:8px}#view-status{margin:10px 0;min-height:20px}
 </style>
 <h1>자비스 식대 변경 미리보기</h1>
 <p>__TITLE__ · 영수증별로 적용 여부를 선택하세요. 선택 저장 후 프로그램 메뉴 3번에서 자비스에 적용합니다.</p>
@@ -14,8 +15,22 @@
   <p id="message" role="status" aria-live="polite"></p>
   <p class="muted">식대 종류와 인원을 선택하면 예정금액이 계산됩니다. 대상 제외 항목은 인원을 직접 입력하세요. 예정금액은 기존 금액과 인원 × 종류별 한도 중 작은 금액이며, 사용목적은 식비입니다. 확인 필요·기준 충족 항목은 선택할 수 없습니다.</p>
 </div>
-<div class="filters"><input id="q" aria-label="영수증 검색" placeholder="이름·메모·영수증ID 검색"><select id="s" aria-label="검사 분류"><option value="">전체 상태</option><option value="change">수정 예정</option><option value="review">확인 필요</option><option value="keep">기준 충족</option><option value="excluded">대상 제외</option></select><label><input id="chosen-only" type="checkbox"> 선택한 항목만 보기</label><span id="visible-count" class="muted"></span></div>
+<div class="filters"><input id="q" aria-label="영수증 검색" placeholder="이름·메모·영수증ID 검색"><select id="s" aria-label="검사 분류"><option value="">전체 상태</option><option value="change">수정 예정</option><option value="review">확인 필요</option><option value="keep">기준 충족</option><option value="excluded">대상 제외</option></select><label><input id="chosen-only" type="checkbox"> 선택한 항목만 보기</label><button id="clear-view">필터·정렬 초기화</button><span id="visible-count" class="muted" role="status"></span></div>
+<p id="view-help" class="muted">열 제목의 ▾ 버튼으로 정렬하거나 원하는 값만 표시할 수 있습니다. 필터로 숨긴 항목도 적용 선택은 유지됩니다.</p>
+<p id="view-status" class="muted"></p>
 <div class="table"><table><thead><tr>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
+<p id="empty-table" class="empty-table" hidden>조건에 맞는 영수증이 없습니다. 필터를 바꾸거나 초기화하세요.</p>
+<dialog id="column-menu" aria-labelledby="column-title">
+  <div class="menu-heading"><strong id="column-title"></strong><button id="column-close" aria-label="필터 창 닫기">×</button></div>
+  <div class="sort-actions"><button id="sort-asc">오름차순 ↑</button><button id="sort-desc">내림차순 ↓</button><button id="sort-none">원래 순서</button></div>
+  <label class="filter-search">포함할 글자<input id="column-search" placeholder="입력한 글자가 있는 값만 표시" autocomplete="off"></label>
+  <div id="column-range" class="filter-range" hidden><label><span id="range-min-label">최소</span><input id="column-min" aria-label="최소값"></label><label><span id="range-max-label">최대</span><input id="column-max" aria-label="최대값"></label></div>
+  <div class="value-actions"><button id="values-all">값 전체 선택</button><button id="values-none">값 전체 해제</button></div>
+  <div id="column-values" class="filter-values" role="group" aria-label="표시할 값"></div>
+  <p id="value-count" class="muted"></p>
+  <p id="filter-error" role="alert" hidden></p>
+  <div class="menu-footer"><button id="column-clear">이 열 필터 해제</button><button id="column-apply" class="primary">필터 적용</button></div>
+</dialog>
 <script id="preview-data" type="application/json">__DATA__</script>
 <script>
 const data=JSON.parse(document.getElementById('preview-data').textContent);
@@ -24,6 +39,124 @@ const rows=[...document.querySelectorAll('tbody tr')];
 const save=document.getElementById('save'),message=document.getElementById('message');
 let saved=data.selection,revision=data.revision,busy=false,dirty=false;
 const editable=Boolean(data.endpoint)&&location.protocol==='http:';
+const headers=[...document.querySelectorAll('thead th')],columnFilters=new Map();
+const collator=new Intl.Collator('ko',{numeric:true,sensitivity:'base'});
+const columnMenu=document.getElementById('column-menu');
+let sortColumn=null,sortDirection='asc',menuColumn=null,menuValues=[],draftValues=new Set(),orderingRows=false;
+function columnValue(row,index){
+  if(index===0)return row.querySelector('.apply-toggle').checked?'적용':'제외';
+  const value=row.cells[index].textContent.trim();return value==='—'?'':value;
+}
+function compareValues(a,b,index){
+  if(a==='')return b===''?0:1;
+  if(b==='')return -1;
+  return headers[index].dataset.type==='number'&&Number.isFinite(Number(a))&&Number.isFinite(Number(b))?Number(a)-Number(b):collator.compare(a,b);
+}
+function matchesColumn(row,index,rule){
+  const value=columnValue(row,index);
+  if(!value.toLocaleLowerCase('ko').includes(rule.query))return false;
+  if(rule.values!==null&&!rule.values.has(value))return false;
+  if(rule.min!==''||rule.max!==''){
+    if(value==='')return false;
+    const number=headers[index].dataset.type==='number',actual=number?Number(value):value;
+    if(rule.min!==''&&actual<(number?Number(rule.min):rule.min))return false;
+    if(rule.max!==''&&actual>(number?Number(rule.max):rule.max))return false;
+  }
+  return true;
+}
+function orderRows(){
+  if(orderingRows)return;
+  const ordered=rows.map((row,index)=>({row,index})).sort((a,b)=>{
+    if(sortColumn===null)return a.index-b.index;
+    const av=columnValue(a.row,sortColumn),bv=columnValue(b.row,sortColumn);
+    // Blank values stay at the bottom in either direction. Equal values keep scan order.
+    const cmp=av===''||bv===''?compareValues(av,bv,sortColumn):compareValues(av,bv,sortColumn)*(sortDirection==='asc'?1:-1);
+    return cmp||a.index-b.index;
+  }).map(item=>item.row);
+  const body=document.querySelector('tbody');
+  if(ordered.some((row,index)=>body.children[index]!==row)){
+    const active=document.activeElement;
+    // Moving a focused number input can fire change synchronously; avoid a nested reorder.
+    orderingRows=true;
+    try{body.append(...ordered);if(body.contains(active))active.focus({preventScroll:true});}
+    finally{orderingRows=false;}
+  }
+}
+function updateViewIndicators(){
+  headers.forEach((header,index)=>{
+    const sorted=index===sortColumn,filtered=columnFilters.has(index),button=header.querySelector('button');
+    header.setAttribute('aria-sort',sorted?(sortDirection==='asc'?'ascending':'descending'):'none');
+    button.classList.toggle('active',sorted||filtered);
+    button.querySelector('.column-indicator').textContent=(filtered?'● ':'')+(sorted?(sortDirection==='asc'?'↑':'↓'):'▾');
+  });
+  const labels=[...columnFilters.keys()].map(index=>headers[index].querySelector('button span').textContent);
+  const parts=[];
+  if(labels.length)parts.push(`열 필터: ${labels.join(', ')}`);
+  if(sortColumn!==null)parts.push(`정렬: ${headers[sortColumn].querySelector('button span').textContent} ${sortDirection==='asc'?'오름차순':'내림차순'}`);
+  document.getElementById('view-status').textContent=parts.join(' · ');
+}
+function renderMenuValues(){
+  const query=document.getElementById('column-search').value.trim().toLocaleLowerCase('ko');
+  const container=document.getElementById('column-values');container.replaceChildren();
+  const visible=menuValues.filter(value=>value.toLocaleLowerCase('ko').includes(query));
+  for(const value of visible){
+    const label=document.createElement('label'),check=document.createElement('input'),text=document.createElement('span');
+    label.className='filter-value';check.type='checkbox';check.checked=draftValues.has(value);text.textContent=value===''?'(빈 값)':value;
+    check.onchange=()=>{if(check.checked)draftValues.add(value);else draftValues.delete(value);};
+    label.append(check,text);container.append(label);
+  }
+  if(!visible.length)container.textContent='검색과 일치하는 값이 없습니다.';
+  document.getElementById('value-count').textContent=`검색된 값 ${visible.length}개 / 전체 ${menuValues.length}개 · 여러 값 선택 가능`;
+}
+function closeColumnMenu(){columnMenu.close();}
+function openColumnMenu(index){
+  menuColumn=index;
+  const rule=columnFilters.get(index)||{values:null,query:'',min:'',max:''},type=headers[index].dataset.type;
+  menuValues=[...new Set(rows.map(row=>columnValue(row,index)))].sort((a,b)=>compareValues(a,b,index));
+  draftValues=new Set(rule.values===null?menuValues:rule.values);
+  document.getElementById('column-title').textContent=headers[index].querySelector('button span').textContent;
+  document.getElementById('column-search').value=rule.query;
+  document.getElementById('column-range').hidden=type==='text';
+  for(const end of ['min','max']){
+    const input=document.getElementById(`column-${end}`);input.type=type==='date'?'date':'number';input.step='1';input.value=rule[end];
+    document.getElementById(`range-${end}-label`).textContent=type==='date'?(end==='min'?'시작일':'종료일'):(end==='min'?'최소 (이상)':'최대 (이하)');
+    input.setAttribute('aria-label',type==='date'?(end==='min'?'시작일':'종료일'):(end==='min'?'최소값':'최대값'));
+  }
+  document.getElementById('filter-error').hidden=true;
+  document.getElementById('sort-asc').setAttribute('aria-pressed',String(sortColumn===index&&sortDirection==='asc'));
+  document.getElementById('sort-desc').setAttribute('aria-pressed',String(sortColumn===index&&sortDirection==='desc'));
+  document.getElementById('sort-none').setAttribute('aria-pressed',String(sortColumn===null));
+  renderMenuValues();
+  const button=headers[index].querySelector('button'),rect=button.getBoundingClientRect();
+  button.setAttribute('aria-expanded','true');columnMenu.showModal();
+  columnMenu.style.left=`${Math.max(12,Math.min(rect.left,innerWidth-columnMenu.offsetWidth-12))}px`;
+  columnMenu.style.top=`${Math.max(12,Math.min(rect.bottom+8,innerHeight-columnMenu.offsetHeight-12))}px`;
+  document.getElementById('column-search').focus();
+}
+function applyColumnFilter(){
+  const minInput=document.getElementById('column-min'),maxInput=document.getElementById('column-max');
+  const type=headers[menuColumn].dataset.type,min=type==='text'?'':minInput.value,max=type==='text'?'':maxInput.value;
+  if(type!=='text'&&(!minInput.checkValidity()||!maxInput.checkValidity()||(min!==''&&max!==''&&(type==='number'?Number(min)>Number(max):min>max)))){
+    const error=document.getElementById('filter-error');error.textContent='범위를 확인하세요. 시작값은 끝값 이하로 입력하세요.';error.hidden=false;return;
+  }
+  const query=document.getElementById('column-search').value.trim().toLocaleLowerCase('ko');
+  const values=menuValues.every(value=>draftValues.has(value))?null:new Set(draftValues);
+  if(values===null&&!query&&!min&&!max)columnFilters.delete(menuColumn);
+  else columnFilters.set(menuColumn,{values,query,min,max});
+  filter();closeColumnMenu();
+}
+headers.forEach((header,index)=>{header.querySelector('button').onclick=()=>openColumnMenu(index);});
+columnMenu.addEventListener('close',()=>{headers.forEach(header=>header.querySelector('button').setAttribute('aria-expanded','false'));});
+columnMenu.addEventListener('click',event=>{if(event.target===columnMenu){const r=columnMenu.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeColumnMenu();}});
+document.getElementById('column-close').onclick=closeColumnMenu;
+document.getElementById('column-search').oninput=renderMenuValues;
+document.getElementById('column-search').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();applyColumnFilter();}};
+document.getElementById('values-all').onclick=()=>{draftValues=new Set(menuValues);renderMenuValues();};
+document.getElementById('values-none').onclick=()=>{draftValues.clear();renderMenuValues();};
+document.getElementById('column-apply').onclick=applyColumnFilter;
+document.getElementById('column-clear').onclick=()=>{columnFilters.delete(menuColumn);filter();closeColumnMenu();};
+for(const direction of ['asc','desc','none'])document.getElementById(`sort-${direction}`).onclick=()=>{sortColumn=direction==='none'?null:menuColumn;sortDirection=direction;filter();closeColumnMenu();};
+document.getElementById('clear-view').onclick=()=>{columnFilters.clear();sortColumn=null;document.getElementById('q').value='';document.getElementById('s').value='';document.getElementById('chosen-only').checked=false;filter();};
 function rowChoice(row){return {kind:row.querySelector('.kind').value,count:row.querySelector('.people').valueAsNumber};}
 function changedChoice(row,choice){const d=entries.get(row.dataset.id).decision;return d.action==='excluded'||choice.kind!==d.kind||choice.count!==d.count;}
 function selection(){
@@ -45,10 +178,16 @@ function restore(value){
   }
 }
 function filter(){
-  const q=document.getElementById('q').value.toLowerCase(),s=document.getElementById('s').value,chosen=document.getElementById('chosen-only').checked;
-  let shown=0;
-  rows.forEach(row=>{row.hidden=!(row.textContent.toLowerCase().includes(q)&&(!s||row.dataset.status===s)&&(!chosen||row.querySelector('.apply-toggle').checked));if(!row.hidden)shown++;});
-  document.getElementById('visible-count').textContent=`표시 ${shown}건 / 전체 ${rows.length}건`;
+  const q=document.getElementById('q').value.trim().toLocaleLowerCase('ko'),s=document.getElementById('s').value,chosen=document.getElementById('chosen-only').checked;
+  let shown=0,selected=0;
+  rows.forEach(row=>{
+    const text=headers.map((_,index)=>columnValue(row,index)).join(' ').toLocaleLowerCase('ko'),on=row.querySelector('.apply-toggle').checked;
+    row.hidden=!(text.includes(q)&&(!s||row.dataset.status===s)&&(!chosen||on)&&[...columnFilters].every(([index,rule])=>matchesColumn(row,index,rule)));
+    if(!row.hidden){shown++;if(on)selected++;}
+  });
+  orderRows();updateViewIndicators();
+  document.getElementById('visible-count').textContent=`표시 ${shown}건 / 전체 ${rows.length}건 · 표시 중 적용 선택 ${selected}건`;
+  document.getElementById('empty-table').hidden=shown!==0;
 }
 function update(){
   let selected=0,manualCount=0,adjusted=0,invalid=0;
