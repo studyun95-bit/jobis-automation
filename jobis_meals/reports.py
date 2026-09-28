@@ -89,12 +89,7 @@ def render_preview(plan, config=None, selection=None, endpoint=None, revision=No
                "endpoint": endpoint, "revision": revision}
     encoded = json.dumps(payload, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     replacements = {"TITLE": html.escape(plan["company"] + " / " + plan["month"]), "CARDS": cards,
-                    "HEAD": ''.join(
-                        f'<th scope="col" aria-sort="none" data-type="{"number" if i in (1, 5, 6, 9) else "date" if i == 2 else "text"}">'
-                        f'<button class="column-button" data-column="{i}" aria-label="{c} 필터 및 정렬" '
-                        f'aria-haspopup="dialog" aria-expanded="false"><span>{c}</span>'
-                        '<span class="column-indicator" aria-hidden="true">▾</span></button></th>'
-                        for i, c in enumerate(["적용 선택"] + COLUMNS)),
+                    "HEAD": '<th>적용 선택</th>' + ''.join('<th>' + c + '</th>' for c in COLUMNS),
                     "BODY": ''.join(body), "DATA": encoded}
     template = Path(__file__).with_name("preview.html").read_text(encoding="utf-8")
     return re.sub(r"__(TITLE|CARDS|HEAD|BODY|DATA)__", lambda m: replacements[m[1]], template)
