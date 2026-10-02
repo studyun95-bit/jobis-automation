@@ -3,6 +3,7 @@ import copy
 import html
 import json
 import os
+import re
 import threading
 from contextlib import contextmanager
 from dataclasses import asdict, replace
@@ -312,6 +313,51 @@ def test_preview_filters_and_escapes_content(browser, ui, config, tmp_path):
         assert "'=HYPERLINK" in (tmp_path / 'preview.csv').read_text(encoding='utf-8-sig')
     finally:
         page.close()
+
+
+def test_legacy_rows_do_not_interrupt_preview_initialization(ui, config, tmp_path, monkeypatch):
+    from jobis_meals import preview_server
+    render = preview_server.render_preview
+
+    def legacy_rows(*args, **kwargs):
+        doc = render(*args, **kwargs)
+        doc = re.sub(r'<p class="full-hint muted" hidden>.*?</p>', '', doc)
+        doc = re.sub(r'<option value="full">.*?</option>', '', doc)
+        payload_pattern = r'(<script id="preview-data" type="application/json">)(.*?)(</script>)'
+        match = re.search(payload_pattern, doc, re.S)
+        data = json.loads(match[2])
+        data.pop("app_version")
+        data["meal_types"].pop("full")
+        for spec in data["meal_types"].values():
+            spec.pop("purpose")
+        return re.sub(payload_pattern, lambda m: m[1] + json.dumps(data, ensure_ascii=False) + m[3], doc, flags=re.S)
+
+    monkeypatch.setattr(preview_server, "render_preview", legacy_rows)
+    plan = make(ui, config)
+    path = tmp_path / "plan.json"
+    write_json(path, plan)
+    server = PreviewServer(path, config).start()
+    page = ui.context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        page.goto(server.url)
+        assert page.locator('.choice-label').all_text_contents() == ["적용", "적용", "제외", "적용", "적용"]
+        assert page.locator('.manual:visible').count() == 4
+        expect(page.locator('#runtime-warning')).to_be_visible()
+        expect(page.locator('#summary')).to_contain_text("적용 선택 4건")
+        page.get_by_role("spinbutton", name="2 배수", exact=True).fill("2")
+        expect(page.locator('tr[data-id="2"] [data-field=target]')).to_have_text("20000")
+        expect(page.locator('tr[data-id="2"] [data-field=purpose]')).to_have_text("식비")
+        page.get_by_role("button", name="선택 저장", exact=True).click()
+        expect(page.locator('#message')).to_contain_text("4건 저장 완료")
+        assert load_selection(tmp_path, plan, config)["overrides"] == {"2": {"kind": "lunch", "count": 2}}
+        page.reload()
+        assert page.locator('.manual:visible').count() == 4
+        assert errors == []
+    finally:
+        page.close()
+        server.close()
 
 
 def test_preview_toggles_persist_and_control_real_apply_flow(ui, site, config, tmp_path):

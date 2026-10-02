@@ -9,6 +9,7 @@
 <p>__TITLE__ · 영수증별로 적용 여부를 선택하세요. 선택 저장 후 프로그램 메뉴 3번에서 자비스에 적용합니다.</p>
 <div class="cards">__CARDS__</div>
 <p id="offline" hidden>저장된 미리보기입니다. 선택을 바꾸려면 프로그램에서 <b>5 최근 미리보기 다시 열기</b>를 선택하세요.</p>
+<p id="runtime-warning" role="status" hidden>이전 버전의 프로그램이 실행 중입니다. 새 기능을 사용하려면 프로그램을 종료하고 run.command를 다시 실행한 뒤 5번으로 미리보기를 여세요. 저장된 선택은 유지됩니다.</p>
 <div class="toolbar">
   <div class="actions"><strong id="summary"></strong><button id="save" class="primary" disabled>선택 저장</button><button id="all-off">전체 선택 해제</button><button id="reset">검사 기본값으로</button></div>
   <p id="message" role="status" aria-live="polite"></p>
@@ -24,6 +25,7 @@ const rows=[...document.querySelectorAll('tbody tr')];
 const save=document.getElementById('save'),message=document.getElementById('message');
 let saved=data.selection,revision=data.revision,busy=false,dirty=false;
 const editable=Boolean(data.endpoint)&&location.protocol==='http:';
+document.getElementById('runtime-warning').hidden=Boolean(data.app_version);
 function rowChoice(row){const kind=row.querySelector('.kind').value;return {kind,count:kind==='full'?1:row.querySelector('.people').valueAsNumber};}
 function changedChoice(row,choice){const d=entries.get(row.dataset.id).decision;return ['excluded','review'].includes(d.action)||choice.kind!==d.kind||choice.count!==d.count;}
 function updateEditor(row){
@@ -34,7 +36,7 @@ function updateEditor(row){
     input.value=row.dataset.previousCount??(original.action==='change'?original.count:'');
   }
   row.dataset.editorKind=kind;input.disabled=!editable||full;
-  row.querySelector('.full-hint').hidden=!full;
+  const hint=row.querySelector('.full-hint');if(hint)hint.hidden=!full;
 }
 function selection(){
   const selected_ids=[],overrides={};
@@ -77,11 +79,11 @@ function update(){
       const valid=Boolean(spec)&&Number.isInteger(count)&&count>=1&&count<=100;
       input.setAttribute('aria-invalid',String(!valid));
       if(valid&&changed){
-        purpose=spec.purpose;
+        purpose=spec.purpose??(choice.kind==='full'?'기타':'식비');
         if(choice.kind==='full'){target=e.amount;count=null;reason=`사용자가 전액 지급으로 확인 / 기존 영수금액 ${e.amount.toLocaleString('ko-KR')}원 유지`;}
         else{const limit=spec.limit*count;target=Math.min(e.amount,limit);reason=`사용자가 ${spec.label} ${count}명으로 확인 / 한도 ${limit.toLocaleString('ko-KR')}원`;}
       }
-      else if(!valid){invalid++;target=null;count=null;purpose=spec?.purpose??e.purpose;reason='적용할 분류와 배수를 입력하세요.';}
+      else if(!valid){invalid++;target=null;count=null;purpose=spec?.purpose??'식비';reason='적용할 분류와 배수를 입력하세요.';}
     }
     row.querySelector('[data-field=target]').textContent=target??'—';row.querySelector('[data-field=count]').textContent=count??'—';row.querySelector('[data-field=purpose]').textContent=purpose;row.querySelector('[data-field=reason]').textContent=reason;
   }

@@ -10,6 +10,13 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from . import __version__
+
+
+# Keep the markup and JavaScript paired with the Python code loaded at startup.
+# Reading this file on each request mixed old row markup with newly installed JS.
+_PREVIEW_TEMPLATE = Path(__file__).with_name("preview.html").read_text(encoding="utf-8")
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -88,14 +95,13 @@ def render_preview(plan, config=None, selection=None, endpoint=None, revision=No
                         + html.escape(str(v if v is not None else "—")) + '</td>' for i, v in enumerate(row))
         body.append(f'<tr data-id="{rid}" data-status="{d["action"]}"><td class="choice">{control}</td>{cells}</tr>')
         entries.append({"id": r["id"], "amount": r["amount"], "purpose": r["purpose"], "decision": d})
-    payload = {"entries": entries, "meal_types": kinds, "selection": selection,
+    payload = {"app_version": __version__, "entries": entries, "meal_types": kinds, "selection": selection,
                "endpoint": endpoint, "revision": revision}
     encoded = json.dumps(payload, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     replacements = {"TITLE": html.escape(plan["company"] + " / " + plan["month"]), "CARDS": cards,
                     "HEAD": '<th>적용 선택</th>' + ''.join('<th>' + c + '</th>' for c in COLUMNS),
                     "BODY": ''.join(body), "DATA": encoded}
-    template = Path(__file__).with_name("preview.html").read_text(encoding="utf-8")
-    return re.sub(r"__(TITLE|CARDS|HEAD|BODY|DATA)__", lambda m: replacements[m[1]], template)
+    return re.sub(r"__(TITLE|CARDS|HEAD|BODY|DATA)__", lambda m: replacements[m[1]], _PREVIEW_TEMPLATE)
 
 
 def preview(folder: Path, plan: dict, config=None, selection=None):

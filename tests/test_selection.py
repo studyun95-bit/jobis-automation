@@ -130,3 +130,18 @@ def test_review_requires_an_explicit_choice_and_remains_off_by_default(receipt, 
     selected["overrides"] = {"3": {"kind": kind, "count": count}}
     assert validate_selection(plan, selected, config) == selected
     assert selection_summary(plan, selected) == {"selected": 1, "manual": 0, "adjusted": 0, "skipped": 0, "reviewed": 1}
+
+
+def test_running_renderer_keeps_its_template_when_files_are_updated(receipt, config, monkeypatch):
+    from jobis_meals.reports import render_preview
+    plan = build_plan([Receipt(**receipt)], [{"id": "1", "name": "서민하"}], config, "2026-09")
+    before = render_preview(plan, config)
+    original_read = Path.read_text
+
+    def replaced_file(path, *args, **kwargs):
+        if path.name == "preview.html" and path.parent.name == "jobis_meals":
+            return "new, incompatible template installed while the program is running"
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", replaced_file)
+    assert render_preview(plan, config) == before
