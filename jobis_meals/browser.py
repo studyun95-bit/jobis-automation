@@ -148,7 +148,7 @@ class JobisUI:
         return {field: page.locator("#" + field).input_value() for field in fields}
 
     @staticmethod
-    def assert_baseline(r: Receipt, actual: dict, target: int):
+    def assert_baseline(r: Receipt, actual: dict, target: int, purpose: str = "식비"):
         expected_paid = {"지급대기": "N", "지급완료": "Y", "지급거절": "R"}.get(r.status)
         expected_type = {"개인카드": "R", "법인카드": "T", "기타영수증": "E"}.get(r.evidence)
         expected_dup = "P" if "의심" in r.duplicate else "Y" if "확정" in r.duplicate else "N"
@@ -159,28 +159,30 @@ class JobisUI:
             checks.append(actual["r_type"] == expected_type)
         if not all(checks):
             raise RuntimeError(f"{r.id}: 목록과 상세내역이 다릅니다. 새 검사 필요")
-        already = int(actual["total_amt"]) == target and actual["purpose"] == "식비"
+        already = int(actual["total_amt"]) == target and actual["purpose"] == purpose
         if not already and (int(actual["total_amt"]) != r.amount or actual["purpose"] != r.purpose):
             raise RuntimeError(f"{r.id}: 미리보기 이후 금액 또는 목적이 변경됨")
         return already
 
-    def apply_one(self, r: Receipt, target: int, journal):
+    def apply_one(self, r: Receipt, target: int, journal, purpose: str = "식비"):
+        if purpose not in ("식비", "기타"):
+            raise ValueError("지원하지 않는 사용목적입니다.")
         before = self.detail(r.url)
-        if self.assert_baseline(r, before, target):
+        if self.assert_baseline(r, before, target, purpose):
             return "already_correct"
         if target > r.amount:
             raise RuntimeError("기존 결제 금액보다 올릴 수 없습니다.")
         if int(before["total_amt"]) != target:
             self.page.locator("#total_amt").fill(str(target))
-        if before["purpose"] != "식비":
+        if before["purpose"] != purpose:
             self.page.locator("#select2-search_purpose-container").click()
-            self.page.get_by_role("option", name="식비", exact=True).click()
+            self.page.get_by_role("option", name=purpose, exact=True).click()
         staged = self.read_detail(self.page)
         for field, value in before.items():
             if field not in ("total_amt", "purpose") and staged[field] != value:
                 raise RuntimeError("저장 전 다른 필드가 바뀌었습니다: " + field)
-        if staged["total_amt"] != str(target) or staged["purpose"] != "식비":
-            raise RuntimeError("금액 또는 식비 입력 결과가 다릅니다.")
+        if staged["total_amt"] != str(target) or staged["purpose"] != purpose:
+            raise RuntimeError("금액 또는 사용목적 입력 결과가 다릅니다.")
         messages = []
 
         def on_dialog(dialog):
@@ -191,7 +193,7 @@ class JobisUI:
                 dialog.dismiss()
 
         self.page.on("dialog", on_dialog)
-        journal("submission_started", {"id": r.id, "before": before, "target": target})
+        journal("submission_started", {"id": r.id, "before": before, "target": target, "purpose": purpose})
         try:
             try:
                 self.page.locator("#btn_save").click()
@@ -209,7 +211,7 @@ class JobisUI:
             finally:
                 verify.close()
             journal("save_result_observed", {"id": r.id, "after": after, "dialogs": messages})
-            if int(after["total_amt"]) != target or after["purpose"] != "식비":
+            if int(after["total_amt"]) != target or after["purpose"] != purpose:
                 raise RuntimeError("저장 결과 불일치; 자동 재저장하지 않음. 알림: " + " / ".join(messages))
             for field in before:
                 if field not in ("total_amt", "purpose", "vat_amt") and before[field] != after[field]:

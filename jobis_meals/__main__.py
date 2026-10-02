@@ -218,8 +218,8 @@ def execute(command, config, browser, month=None, plan_path=None, only=None, ope
             else:
                 print(f"확인 필요: 계획과 불일치 {len(result['problems'])}건 / 수정 필요 {len(result['remaining_changes'])}건")
                 print(json.dumps(result, ensure_ascii=False, indent=2))
-            if result["counts"].get("review", 0):
-                print("인원 판정 보류 항목은 수동 검토가 필요합니다. 미리보기의 '확인 필요'를 확인하세요.")
+            if result["review_ids"]:
+                print(f"아직 직접 확인하지 않은 '확인 필요' {len(result['review_ids'])}건이 있습니다. 미리보기에서 분류와 배수를 확인하세요.")
             return 0 if result["success"] else 2
     if saved_preview is not None:
         return reopen_preview(saved_preview, config)
@@ -249,7 +249,7 @@ def menu(config, browser):
                 if choice == "3":
                     selection = load_selection(path.parent, plan, config)
                     counts = selection_summary(plan, selection)
-                    print(f"저장된 선택 {counts['selected']}건 (대상 제외에서 추가 {counts['manual']}건 / 식대 설정 변경 {counts['adjusted']}건 / 선택 해제 {counts['skipped']}건)")
+                    print(f"저장된 선택 {counts['selected']}건 (대상 제외에서 추가 {counts['manual']}건 / 확인 필요에서 추가 {counts['reviewed']}건 / 분류·배수 변경 {counts['adjusted']}건 / 선택 해제 {counts['skipped']}건)")
                     if not counts["selected"]:
                         print("선택한 항목이 없습니다. 메뉴 5번에서 토글을 켜고 선택 저장을 누르세요.")
                         continue

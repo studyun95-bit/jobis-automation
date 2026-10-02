@@ -29,8 +29,12 @@ def can_include(receipt, config):
     return receipt["status"] in config["eligible_statuses"] and receipt["amount"] > 0
 
 
+def target_purpose(kind):
+    return "기타" if kind == "full" else "식비"
+
+
 def meal_types(config):
-    """Per-person limits for explicit choices in the preview."""
+    """Explicit preview choices; a null limit means the original amount in full."""
     result = {}
     for kind, label, key, default in (("lunch", "점심", "lunch_limit", 10000),
                                       ("overtime", "야근", "overtime_limit", 10000),
@@ -39,7 +43,8 @@ def meal_types(config):
         limit = config.get(key, default)
         if type(limit) is not int or limit <= 0:
             raise ValueError(key + "는 양의 정수여야 합니다.")
-        result[kind] = {"label": label, "limit": limit}
+        result[kind] = {"label": label, "limit": limit, "purpose": target_purpose(kind)}
+    result["full"] = {"label": "전액 지급", "limit": None, "purpose": target_purpose("full")}
     return result
 
 
@@ -48,11 +53,17 @@ def manual_decision(receipt, choice, config):
     if not can_include(receipt, config):
         raise ValueError(f"{r.id}: 지급상태 또는 금액 때문에 적용할 수 없습니다.")
     if not isinstance(choice, dict) or set(choice) != {"kind", "count"}:
-        raise ValueError(f"{r.id}: 식대 종류와 인원을 확인하세요.")
+        raise ValueError(f"{r.id}: 분류와 배수를 확인하세요.")
     kind, count = choice["kind"], choice["count"]
     kinds = meal_types(config)
     if not isinstance(kind, str) or kind not in kinds or type(count) is not int or not 1 <= count <= 100:
-        raise ValueError(f"{r.id}: 식대 종류와 인원(1~100명)을 확인하세요.")
+        raise ValueError(f"{r.id}: 분류와 배수(1~100)를 확인하세요.")
+    if kind == "full":
+        if count != 1:
+            raise ValueError(f"{r.id}: 전액 지급은 배수 1로 저장하며 기존 영수금액을 그대로 사용합니다.")
+        action = "keep" if r.purpose == target_purpose(kind) else "change"
+        return Decision(action, kind, r.amount, None, (),
+                        f"사용자가 전액 지급으로 확인 / 기존 영수금액 {r.amount:,}원 유지")
     limit = kinds[kind]["limit"] * count
     target = min(r.amount, limit)
     action = "keep" if (r.amount, r.purpose) == (target, "식비") else "change"
@@ -67,14 +78,14 @@ def validate_selection(plan, selection, config):
     if not isinstance(ids, list) or not all(isinstance(v, str) for v in ids) or len(ids) != len(set(ids)):
         raise ValueError("선택한 영수증 ID가 잘못되었습니다.")
     if not isinstance(overrides, dict):
-        raise ValueError("직접 선택한 식대 종류와 인원을 확인하세요.")
+        raise ValueError("직접 선택한 분류와 배수를 확인하세요.")
     entries = {e["receipt"]["id"]: e for e in plan["entries"]}
     manual_ids = set()
     for rid in ids:
         entry = entries.get(rid)
-        if entry is None or entry["decision"]["action"] not in ("change", "excluded"):
+        if entry is None or entry["decision"]["action"] not in ("change", "excluded", "review"):
             raise ValueError(f"{rid}: 적용 대상으로 선택할 수 없는 항목입니다.")
-        if entry["decision"]["action"] == "excluded" or rid in overrides:
+        if entry["decision"]["action"] in ("excluded", "review") or rid in overrides:
             manual_decision(entry["receipt"], overrides.get(rid), config)
             manual_ids.add(rid)
     if set(overrides) != manual_ids:
@@ -96,5 +107,6 @@ def selection_summary(plan, selection):
     chosen = set(selection["selected_ids"])
     changes = {e["receipt"]["id"] for e in plan["entries"] if e["decision"]["action"] == "change"}
     excluded = {e["receipt"]["id"] for e in plan["entries"] if e["decision"]["action"] == "excluded"}
+    reviews = {e["receipt"]["id"] for e in plan["entries"] if e["decision"]["action"] == "review"}
     return {"selected": len(chosen), "manual": len(chosen & excluded), "skipped": len(changes - chosen),
-            "adjusted": len(set(selection["overrides"]) & changes)}
+            "adjusted": len(set(selection["overrides"]) & changes), "reviewed": len(chosen & reviews)}

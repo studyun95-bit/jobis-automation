@@ -63,7 +63,7 @@ def test_change_receipt_can_override_meal_kind_and_count(receipt, config):
     plan = build_plan([Receipt(**receipt)], [{"id": "1", "name": "서민하"}], config, "2026-09")
     selection = {**default_selection(plan), "overrides": {"3": {"kind": "moin_lunch", "count": 1}}}
     assert validate_selection(plan, selection, config) == selection
-    assert selection_summary(plan, selection) == {"selected": 1, "manual": 0, "adjusted": 1, "skipped": 0}
+    assert selection_summary(plan, selection) == {"selected": 1, "manual": 0, "adjusted": 1, "skipped": 0, "reviewed": 0}
 
 
 @pytest.mark.parametrize("count", [0, -1, 101, 1.5, True, None, "2"])
@@ -72,14 +72,15 @@ def test_manual_count_must_be_a_valid_integer(receipt, config, count):
         manual_decision(receipt, {"kind": "lunch", "count": count}, config)
 
 
+@pytest.mark.parametrize("kind", ["lunch", "full"])
 @pytest.mark.parametrize("patch", [{"status": "지급완료"}, {"status": "지급거절"}, {"amount": 0}, {"amount": -10000}])
-def test_manual_selection_preserves_payment_eligibility(receipt, config, patch):
+def test_manual_selection_preserves_payment_eligibility(receipt, config, patch, kind):
     receipt.update(patch)
     with pytest.raises(ValueError, match="지급상태 또는 금액"):
-        manual_decision(receipt, {"kind": "lunch", "count": 1}, config)
+        manual_decision(receipt, {"kind": kind, "count": 1}, config)
 
 
-@pytest.mark.parametrize("mutation", ["wrong_plan", "unknown", "duplicate", "missing_count", "extra_target", "unused_override", "review"])
+@pytest.mark.parametrize("mutation", ["wrong_plan", "unknown", "duplicate", "missing_count", "extra_target", "unused_override", "keep"])
 def test_selection_cannot_bypass_plan_or_manual_validation(receipt, config, mutation):
     plan = build_plan([Receipt(**receipt)], [{"id": "1", "name": "서민하"}], config, "2026-09")
     selection = {**default_selection(plan), "selected_ids": ["3"],
@@ -92,8 +93,40 @@ def test_selection_cannot_bypass_plan_or_manual_validation(receipt, config, muta
     elif mutation == "missing_count": del bad["overrides"]["3"]["count"]
     elif mutation == "extra_target": bad["overrides"]["3"]["target"] = 27000
     elif mutation == "unused_override": bad["selected_ids"] = []
-    elif mutation == "review":
-        plan["entries"][0]["decision"]["action"] = "review"
+    elif mutation == "keep":
+        plan["entries"][0]["decision"]["action"] = "keep"
         bad["plan_hash"] = default_selection(plan)["plan_hash"]
     with pytest.raises(ValueError):
         validate_selection(plan, bad, config)
+
+
+@pytest.mark.parametrize("amount", [7000, 47000])
+@pytest.mark.parametrize("purpose,action", [("", "change"), ("식비", "change"), ("기타", "keep")])
+def test_full_payment_keeps_amount_without_people_limit(receipt, config, amount, purpose, action):
+    receipt.update(amount=amount, purpose=purpose)
+    decision = manual_decision(receipt, {"kind": "full", "count": 1}, config)
+    assert decision.target == amount
+    assert decision.count is None
+    assert decision.action == action
+    assert "전액 지급" in decision.reason
+
+
+@pytest.mark.parametrize("count", [0, 2, 100, True, None])
+def test_full_payment_cannot_multiply_the_original_amount(receipt, config, count):
+    with pytest.raises(ValueError):
+        manual_decision(receipt, {"kind": "full", "count": count}, config)
+
+
+@pytest.mark.parametrize("kind,count", [("lunch", 2), ("night", 1), ("full", 1)])
+def test_review_requires_an_explicit_choice_and_remains_off_by_default(receipt, config, kind, count):
+    receipt["memo"] = "점심 미등록이름"
+    plan = build_plan([Receipt(**receipt)], [{"id": "1", "name": "서민하"}], config, "2026-09")
+    assert plan["entries"][0]["decision"]["action"] == "review"
+    initial = default_selection(plan)
+    assert initial["selected_ids"] == []
+    selected = {**initial, "selected_ids": ["3"]}
+    with pytest.raises(ValueError):
+        validate_selection(plan, selected, config)
+    selected["overrides"] = {"3": {"kind": kind, "count": count}}
+    assert validate_selection(plan, selected, config) == selected
+    assert selection_summary(plan, selected) == {"selected": 1, "manual": 0, "adjusted": 0, "skipped": 0, "reviewed": 1}

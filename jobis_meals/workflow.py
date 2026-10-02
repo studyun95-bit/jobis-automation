@@ -8,7 +8,7 @@ from pathlib import Path
 from .browser import month_range, receipt_id
 from .reports import digest, journal_writer, preview, write_json
 from .rules import NameCounter, Receipt, decide
-from .selection import default_selection, load_selection, manual_decision, selection_summary, validate_selection
+from .selection import default_selection, load_selection, manual_decision, selection_summary, target_purpose, validate_selection
 
 
 def now():
@@ -92,7 +92,7 @@ def preflight(ui, config, plan, only=None, selection=None):
         if actual is None or not same_unchanged_fields(r, actual):
             raise RuntimeError(f"{r.id}: 검사 후 내역이 바뀌거나 사라졌습니다. 새로 검사하세요.")
         old = (actual.amount, actual.purpose) == (r.amount, r.purpose)
-        done = (actual.amount, actual.purpose) == (d.target, "식비")
+        done = (actual.amount, actual.purpose) == (d.target, target_purpose(d.kind))
         if not old and not done:
             raise RuntimeError(f"{r.id}: 검사 후 금액 또는 목적이 바뀌었습니다. 새로 검사하세요.")
         ready.append((r, d))
@@ -112,9 +112,10 @@ def apply_plan(ui, config, plan, folder, only=None, selection=None):
         log("preflight_passed", {"count": len(ready), "selection": selection,
                                  "applying_ids": [r.id for r, _ in ready]})
         for r, d in ready:
-            print(f"  {r.id} {r.user}: {r.amount:,} → {d.target:,}원 / 식비", flush=True)
-            outcome = ui.apply_one(r, d.target, log)
-            result["items"].append({"id": r.id, "status": outcome, "amount": d.target, "purpose": "식비"})
+            purpose = target_purpose(d.kind)
+            print(f"  {r.id} {r.user}: {r.amount:,} → {d.target:,}원 / {purpose}", flush=True)
+            outcome = ui.apply_one(r, d.target, log, purpose=purpose)
+            result["items"].append({"id": r.id, "status": outcome, "amount": d.target, "purpose": purpose})
             write_json(result_path, result)
         result["success"] = True
         log("apply_completed", {"count": len(ready)})
@@ -144,8 +145,8 @@ def verify_plan(ui, config, plan, folder):
             problems.append({"id": r.id, "reason": "목록에서 사라짐"})
         elif not same_unchanged_fields(r, actual):
             problems.append({"id": r.id, "reason": "메모·사용자·날짜·지급상태 등 변경됨"})
-        elif (r.id in chosen or d["action"] == "keep") and (actual.amount, actual.purpose) != (d["target"], "식비"):
-            problems.append({"id": r.id, "reason": "예정 금액/식비와 다름", "amount": actual.amount, "purpose": actual.purpose})
+        elif (r.id in chosen or d["action"] == "keep") and (actual.amount, actual.purpose) != (d["target"], target_purpose(d["kind"])):
+            problems.append({"id": r.id, "reason": "예정 금액/사용목적과 다름", "amount": actual.amount, "purpose": actual.purpose})
         elif r.id not in chosen and d["action"] in ("excluded", "review") and (actual.amount, actual.purpose) != (r.amount, r.purpose):
             problems.append({"id": r.id, "reason": "제외/보류 항목의 금액 또는 목적 변경됨"})
     new_plan = build_plan(receipts, employees, config, plan["month"])
@@ -158,12 +159,14 @@ def verify_plan(ui, config, plan, folder):
         actual = current.get(rid)
         original = next(e["receipt"] for e in plan["entries"] if e["receipt"]["id"] == rid)
         target = manual_decision(original, choice, config).target
-        if actual and (actual.amount, actual.purpose) != (target, "식비"):
+        if actual and (actual.amount, actual.purpose) != (target, target_purpose(choice["kind"])):
             remaining.add(rid)
     skipped = [e["receipt"]["id"] for e in plan["entries"]
                if e["decision"]["action"] == "change" and e["receipt"]["id"] not in chosen]
+    review_ids = [e["receipt"]["id"] for e in new_plan["entries"]
+                  if e["decision"]["action"] == "review" and e["receipt"]["id"] not in selection["overrides"]]
     result = {"checked_at": now(), "problems": problems, "remaining_changes": sorted(remaining),
-              "selection": selection_summary(plan, selection), "skipped_ids": skipped,
+              "selection": selection_summary(plan, selection), "skipped_ids": skipped, "review_ids": review_ids,
               "counts": dict(Counter(e["decision"]["action"] for e in new_plan["entries"])),
               "success": not problems and not remaining}
     write_json(Path(folder) / ("verify-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".json"), result)

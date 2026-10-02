@@ -47,14 +47,14 @@ COLUMNS = ["영수증ID", "일자", "사용자", "업체명", "기존금액", "�
 
 
 def preview_rows(plan, config, selection):
-    from .selection import manual_decision
+    from .selection import manual_decision, target_purpose
     rows = []
     for entry in plan["entries"]:
         r, d = entry["receipt"], entry["decision"]
         if r["id"] in selection["overrides"]:
             d = manual_decision(r, selection["overrides"][r["id"]], config).to_dict()
         rows.append([r["id"], r["date"], r["user"], r["merchant"], r["amount"], d["target"], r["purpose"],
-                     "식비" if d["action"] in ("change", "keep") else r["purpose"], d["count"],
+                     target_purpose(d["kind"]) if d["action"] in ("change", "keep") else r["purpose"], d["count"],
                      ", ".join(entry["decision"]["names"]), LABELS[entry["decision"]["action"]], d["reason"], r["memo"]])
     return rows
 
@@ -68,18 +68,21 @@ def render_preview(plan, config=None, selection=None, endpoint=None, revision=No
     entries = []
     selected = set(selection["selected_ids"])
     kinds = meal_types(config or {})
-    options = ''.join(f'<option value="{kind}">{spec["label"]} · {spec["limit"]:,}원/인</option>'
+    options = ''.join(f'<option value="{kind}">{spec["label"]}'
+                      + (f' · {spec["limit"]:,}원/인' if spec["limit"] is not None else ' · 기존 금액 유지')
+                      + '</option>'
                       for kind, spec in kinds.items())
     for entry, row in zip(plan["entries"], preview_rows(plan, config, selection)):
         r, d = entry["receipt"], entry["decision"]
         rid = html.escape(r["id"], quote=True)
-        allowed = d["action"] == "change" or (d["action"] == "excluded" and config and can_include(r, config))
+        allowed = d["action"] == "change" or (d["action"] in ("excluded", "review") and config and can_include(r, config))
         checked = " checked" if r["id"] in selected else ""
         disabled = "" if allowed and endpoint else " disabled"
         control = f'<label class="switch"><input type="checkbox" role="switch" class="apply-toggle" aria-label="{rid} 적용"{checked}{disabled}><span></span></label><span class="choice-label"></span>'
         if allowed:
             control += (f'<div class="manual" hidden><label>분류 <select class="kind" aria-label="{rid} 분류">{options}</select></label>'
-                        f'<label>배수 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 배수"> 배</label></div>')
+                        f'<label>배수 <input class="people" type="number" min="1" max="100" step="1" placeholder="직접 입력" aria-label="{rid} 배수"> 배</label>'
+                        '<p class="full-hint muted" hidden>전액 지급은 배수를 적용하지 않습니다.</p></div>')
         fields = {5: "target", 7: "purpose", 8: "count", 11: "reason"}
         cells = ''.join('<td' + (f' data-field="{fields[i]}"' if i in fields else '') + '>'
                         + html.escape(str(v if v is not None else "—")) + '</td>' for i, v in enumerate(row))
