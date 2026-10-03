@@ -36,7 +36,9 @@ def site():
         "5": {"user": "서민하", "memo": "점심", "amount": 9000, "purpose": "", "vat": "818"},
     }
     state = {"rows": rows, "saves": [], "mode": "normal", "seen_pages": [], "duplicate": False,
-             "date_ties": False, "ignore_sort": False, "next_query": {}}
+             "date_ties": False, "ignore_sort": False, "next_query": {},
+             "duplicate_purpose_options": False, "purpose_option_decoys": False,
+             "ignore_purpose_selection": False}
     names = ["서민하", "김기태", "임희정", "유병규", "강두원", "이혜영"]
     esc = lambda v: html.escape(str(v), quote=True)
 
@@ -91,10 +93,19 @@ def site():
                           "total_amt": r["amount"], "vat_amt": r["vat"], "purpose": r["purpose"],
                           "notes": r["memo"], "is_paid": "N", "is_dup": "N", "r_type": "R"}
                 form = ''.join(f'<input id="{key}" value="{esc(value)}">' for key, value in fields.items())
-                script = '''<button id="select2-search_purpose-container" onclick="document.getElementById('food').hidden=false;document.getElementById('other').hidden=false">목적</button>
-                <div role="option" id="food" hidden onclick="document.getElementById('purpose').value='식비';this.hidden=true">식비</div>
-                <div role="option" id="other" hidden onclick="document.getElementById('purpose').value='기타';this.hidden=true">기타</div>
-                <button id="btn_save">저장</button><script>
+                options = []
+                for purpose in ("식비", "기타"):
+                    if state["purpose_option_decoys"]:
+                        options.append(f'<li role="option" id="select2-search_purpose-result-stale-{purpose}" style="display:none">{purpose}</li>')
+                        options.append(f'<li role="option" id="select2-other_field-result-{purpose}">{purpose}</li>')
+                        options.append(f'<li role="option" id="select2-search_purpose-result-long-{purpose}">{purpose} 보조</li>')
+                    for index in range(2 if state["duplicate_purpose_options"] else 1):
+                        update = "" if state["ignore_purpose_selection"] else f"document.getElementById('purpose').value='{purpose}';"
+                        options.append(f'<li role="option" id="select2-search_purpose-result-{index}-{purpose}" '
+                                       f'onclick="{update}document.getElementById(\'purpose-results\').hidden=true">{purpose}</li>')
+                chooser = ('<button id="select2-search_purpose-container" onclick="document.getElementById(\'purpose-results\').hidden=false">목적</button>'
+                           '<ul id="purpose-results" hidden>' + ''.join(options) + '</ul>')
+                script = '''<button id="btn_save">저장</button><script>
                 document.getElementById('btn_save').onclick = async () => {
                   const fields = Object.fromEntries(Array.from(document.querySelectorAll('input')).map(e=>[e.id,e.value]));
                   const response = await fetch('/save?id=RID', {method:'POST',body:JSON.stringify(fields)});
@@ -103,7 +114,7 @@ def site():
                   if(result.mode==='silent'){return;}
                   alert('수정 되었습니다.');location.href='/receipts/main';
                 };</script>'''.replace("RID", rid)
-                self.send(header + form + script)
+                self.send(header + form + chooser + script)
             else:
                 self.send("")
 
@@ -424,8 +435,9 @@ def test_all_deselected_means_no_saves(ui, site, config, tmp_path):
     assert verify_plan(ui, config, plan, tmp_path)["success"]
 
 
-@pytest.mark.parametrize("kind,target", [("overtime", 10000), ("night", 12000), ("moin_lunch", 15000), ("full", 18000)])
+@pytest.mark.parametrize("kind,target", [("lunch", 10000), ("overtime", 10000), ("night", 12000), ("moin_lunch", 15000), ("full", 18000)])
 def test_preview_new_meal_choices_reach_saved_receipt(ui, site, config, tmp_path, kind, target):
+    site["duplicate_purpose_options"] = True
     purpose = "기타" if kind == "full" else "식비"
     plan = make(ui, config)
     path = tmp_path / "plan.json"
@@ -507,8 +519,9 @@ def test_manual_include_still_rechecks_receipt_before_any_save(ui, site, config,
     assert not site["saves"]
 
 
-@pytest.mark.parametrize("kind,count,target", [("lunch", 2, 20000), ("night", 2, 24000), ("full", 1, 27000)])
+@pytest.mark.parametrize("kind,count,target", [("lunch", 2, 20000), ("overtime", 2, 20000), ("night", 2, 24000), ("full", 1, 27000)])
 def test_review_toggle_can_save_and_apply_manual_decision(ui, site, config, tmp_path, kind, count, target):
+    site["duplicate_purpose_options"] = True
     purpose = "기타" if kind == "full" else "식비"
     site["rows"]["3"].update(memo="점심 미등록이름", amount=27000)
     site["rows"]["5"]["memo"] = "점심 다른미등록이름"
@@ -567,6 +580,46 @@ def test_review_toggle_can_save_and_apply_manual_decision(ui, site, config, tmp_
     assert not wrong_purpose["success"]
     assert wrong_purpose["remaining_changes"] == ["3"]
     assert [problem["id"] for problem in wrong_purpose["problems"]] == ["3"]
+
+
+def test_manual_purpose_batch_continues_after_full_payment(ui, site, config, tmp_path):
+    site["duplicate_purpose_options"] = True
+    site["purpose_option_decoys"] = True
+    site["rows"]["5"].update(memo="출장 점심", purpose="출장비")
+    before = copy.deepcopy(site["rows"])
+    plan = make(ui, config)
+    selected = {**default_selection(plan), "selected_ids": ["5", "3", "1"],
+                "overrides": {"5": {"kind": "full", "count": 1},
+                              "3": {"kind": "lunch", "count": 2}}}
+    write_json(tmp_path / "selection.json", selected)
+
+    result = apply_plan(ui, config, plan, tmp_path)
+
+    assert result["success"]
+    assert [saved["id"] for saved in site["saves"]] == ["5", "3", "1"]
+    # Both manual entries need only a purpose change; the following automatic
+    # entry also reduces its amount. Duplicate options must not abort the batch.
+    assert [(saved["fields"]["total_amt"], saved["fields"]["purpose"])
+            for saved in site["saves"]] == [("9000", "기타"), ("18000", "식비"), ("10000", "식비")]
+    assert all(site["rows"][rid] == before[rid] for rid in ("2", "4"))
+    assert verify_plan(ui, config, plan, tmp_path)["success"]
+
+
+@pytest.mark.parametrize("purpose,target", [("식비", 10000), ("기타", 18000)])
+def test_manual_purpose_selection_must_change_input_before_saving(ui, site, purpose, target):
+    site["duplicate_purpose_options"] = True
+    site["ignore_purpose_selection"] = True
+    receipts, _ = ui.scan("2026-09")
+    receipt = next(r for r in receipts if r.id == "3")
+    before = copy.deepcopy(site["rows"]["3"])
+    events = []
+
+    with pytest.raises(RuntimeError, match="금액 또는 사용목적 입력 결과가 다릅니다"):
+        ui.apply_one(receipt, target, lambda event, data: events.append(event), purpose=purpose)
+
+    assert not site["saves"]
+    assert "submission_started" not in events
+    assert site["rows"]["3"] == before
 
 
 def test_full_payment_editor_restores_multiplier_when_switching_back(ui, site, config, tmp_path):

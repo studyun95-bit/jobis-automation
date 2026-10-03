@@ -176,7 +176,11 @@ class JobisUI:
             self.page.locator("#total_amt").fill(str(target))
         if before["purpose"] != purpose:
             self.page.locator("#select2-search_purpose-container").click()
-            self.page.get_by_role("option", name=purpose, exact=True).click()
+            # Jobis can list the same purpose (e.g. 기타) more than once.
+            # Choose a visible match in this widget; verify #purpose below.
+            self.page.get_by_role("option", name=purpose, exact=True).and_(
+                self.page.locator('[id^="select2-search_purpose-result-"]:visible')
+            ).first.click()
         staged = self.read_detail(self.page)
         for field, value in before.items():
             if field not in ("total_amt", "purpose") and staged[field] != value:
